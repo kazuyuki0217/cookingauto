@@ -2,9 +2,8 @@ import os
 import requests
 from xml.sax.saxutils import escape
 
-HATENA_ID = os.environ["HATENA_ID"]
-HATENA_API_KEY = os.environ["HATENA_API_KEY"]
-
+HATENA_ID = os.environ["HATENA_ID"].strip()
+HATENA_API_KEY = os.environ["HATENA_API_KEY"].strip()
 # はてなブログAtomPubの投稿エンドポイント
 ENDPOINT = (
     "https://blog.hatena.ne.jp/"
