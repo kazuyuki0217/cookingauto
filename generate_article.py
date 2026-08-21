@@ -7,14 +7,12 @@ client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 image_dir = "images"
 image_files = []
 
-if os.path.exists(image_dir):
-    for filename in os.listdir(image_dir):
-        if filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
-            image_files.append(os.path.join(image_dir, filename))
+for filename in os.listdir("."):
+    if filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+        image_files.append(filename)
 
 if not image_files:
-    raise RuntimeError("料理写真が見つかりません。imagesフォルダに写真を入れてください。")
-
+    raise RuntimeError("料理写真が見つかりません。")
 image_path = image_files[0]
 
 with open(image_path, "rb") as f:
