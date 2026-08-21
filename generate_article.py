@@ -1,41 +1,86 @@
 import os
+import base64
 from openai import OpenAI
 
 client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
+image_dir = "images"
+image_files = []
+
+if os.path.exists(image_dir):
+    for filename in os.listdir(image_dir):
+        if filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+            image_files.append(os.path.join(image_dir, filename))
+
+if not image_files:
+    raise RuntimeError("料理写真が見つかりません。imagesフォルダに写真を入れてください。")
+
+image_path = image_files[0]
+
+with open(image_path, "rb") as f:
+    image_data = base64.b64encode(f.read()).decode("utf-8")
+
+ext = os.path.splitext(image_path)[1].lower()
+
+if ext in [".jpg", ".jpeg"]:
+    mime = "image/jpeg"
+elif ext == ".png":
+    mime = "image/png"
+elif ext == ".webp":
+    mime = "image/webp"
+else:
+    mime = "image/jpeg"
+
 prompt = """
-あなたは「51歳ホームセンター店員の単身赴任生活」という料理ブログの編集者です。
+この料理写真を詳しく分析してください。
 
-仕事終わりの一人暮らし・単身赴任男性が、
-「これなら自分でも作れそう」
-「今日これを作ってみよう」
-と思える料理記事を作成してください。
+この写真をもとに、
+「51歳ホームセンター店員の単身赴任生活」
+という料理ブログの記事を作成してください。
 
-記事は以下の条件で作成してください。
+読者は、一人暮らし・単身赴任で仕事終わりに料理をする人です。
 
-・タイトルは検索されやすく、なおかつクリックしたくなるもの
-・仕事終わり、簡単、節約、短時間、一人暮らし、単身赴任を意識
-・実際に料理を作って食べたような自然な文章
-・大げさな表現は禁止
+以下を記事に含めてください。
+
+・検索されやすくクリックしたくなるタイトル
+・料理名
+・仕事終わりでも作りやすい魅力
 ・材料
 ・作り方
-・食べた感想
-・仕事終わりにおすすめな理由
+・実際に食べたような自然な感想
+・節約ポイント
+・時短ポイント
 ・失敗しにくいポイント
-・料理に合うキッチン用品を自然に紹介できる導線
-・読者が最後まで読みやすい構成
-・Markdownではなく、はてなブログでそのまま使いやすいHTMLで作成
+・この料理に合うキッチン用品を自然に紹介する文章
 
-最初の行に
-TITLE: タイトル
-と書き、
+写真から判断できない材料や分量については、
+断定せず「目安」として自然に設定してください。
 
-その次の行から本文を書いてください。
+料理写真の内容を最優先してください。
+
+記事は、はてなブログにそのまま投稿できるHTML形式にしてください。
+
+最初の1行は必ず
+
+TITLE: 
+
+から始め、その後に記事本文を書いてください。
 """
 
 response = client.responses.create(
     model="gpt-5-mini",
-    input=prompt
+    input=[
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": prompt},
+                {
+                    "type": "input_image",
+                    "image_url": f"data:{mime};base64,{image_data}",
+                },
+            ],
+        }
+    ],
 )
 
 text = response.output_text.strip()
@@ -56,5 +101,5 @@ with open("article_title.txt", "w", encoding="utf-8") as f:
 with open("article_body.txt", "w", encoding="utf-8") as f:
     f.write(body)
 
-print("記事生成完了")
+print("AI記事生成完了")
 print("タイトル:", title)
