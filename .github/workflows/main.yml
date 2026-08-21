@@ -24,6 +24,19 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python generate_article.py
 
+      - name: 生成した記事を読み込む
+        id: article
+        shell: bash
+        run: |
+          {
+            echo 'title<<EOF'
+            cat article_title.txt
+            echo 'EOF'
+            echo 'body<<EOF'
+            cat article_body.txt
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: はてなブログへ投稿
         env:
           HATENA_ID: ${{ secrets.HATENA_ID }}
