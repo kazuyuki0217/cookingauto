@@ -17,20 +17,18 @@ jobs:
           python-version: "3.12"
 
       - name: 必要なライブラリをインストール
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt openai
 
-      - name: はてなブログへ記事を投稿
+      - name: AIで記事を作成
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python generate_article.py
+
+      - name: はてなブログへ投稿
         env:
           HATENA_ID: ${{ secrets.HATENA_ID }}
           HATENA_API_KEY: ${{ secrets.HATENA_API_KEY }}
           HATENA_ENDPOINT: ${{ secrets.HATENA_ENDPOINT }}
-          POST_TITLE: "【仕事終わり15分】単身赴任の簡単節約ごはん"
-          POST_BODY: |
-            仕事終わりに、なるべく手間をかけずに作れる簡単な料理です。
-
-            一人暮らし・単身赴任でも作りやすく、短時間で食べられるのがポイント。
-
-            実際に作って食べてみると、仕事終わりのごはんとして十分満足できました。
-
-            材料や作り方は、料理に合わせて今後自動生成していきます。
+          POST_TITLE: ${{ steps.article.outputs.title }}
+          POST_BODY: ${{ steps.article.outputs.body }}
         run: python post_to_hatena.py
