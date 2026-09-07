@@ -1,0 +1,70 @@
+/*************************************************
+ * 楽天API 403対策テスト
+ * 既存RakutenAffiliate.gsを変更しない安全版
+ *************************************************/
+
+function testRakuten403Fix() {
+  const props = PropertiesService.getScriptProperties();
+
+  const appId = props.getProperty('RAKUTEN_APP_ID');
+  const accessKey = props.getProperty('RAKUTEN_ACCESS_KEY');
+  const affiliateId = props.getProperty('RAKUTEN_AFFILIATE_ID');
+
+  if (!appId || !accessKey || !affiliateId) {
+    throw new Error('楽天APIの認証情報が設定されていません。');
+  }
+
+  const endpoint =
+    'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701';
+
+  const params = {
+    applicationId: appId,
+    accessKey: accessKey,
+    affiliateId: affiliateId,
+    keyword: 'フライパン',
+    formatVersion: '2',
+    hits: '3',
+    page: '1'
+  };
+
+  const query = Object.keys(params)
+    .map(function(key) {
+      return encodeURIComponent(key) + '=' +
+             encodeURIComponent(params[key]);
+    })
+    .join('&');
+
+  const url = endpoint + '?' + query;
+
+  const options = {
+    method: 'get',
+    muteHttpExceptions: true,
+    followRedirects: true,
+    headers: {
+      'Origin': 'https://script.google.com',
+      'Referer': 'https://script.google.com/',
+      'User-Agent': 'Mozilla/5.0'
+    }
+  };
+
+  Logger.log('===== 楽天403対策テスト =====');
+  Logger.log('Origin: https://script.google.com');
+  Logger.log('Referer: https://script.google.com/');
+  Logger.log('API URL: ' + endpoint);
+
+  const response = UrlFetchApp.fetch(url, options);
+  const code = response.getResponseCode();
+  const body = response.getContentText();
+
+  Logger.log('楽天API HTTP: ' + code);
+  Logger.log('楽天API Response: ' + body);
+
+  if (code >= 200 && code < 300) {
+    Logger.log('===== 成功：403解消 =====');
+    return JSON.parse(body);
+  }
+
+  throw new Error(
+    '楽天API HTTP ' + code + ' ' + body
+  );
+}
