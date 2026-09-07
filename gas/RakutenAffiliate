@@ -1,0 +1,1056 @@
+/*************************************************
+ * 料理アフィリエイト自動化
+ * RakutenAffiliate.gs
+ *
+ * 保存エラー対策版
+ *
+ * 特徴
+ * ・トップレベル const 不使用
+ * ・既存コードとの名前衝突を回避
+ * ・楽天市場商品検索API 現行版対応
+ * ・楽天アフィリエイトURL取得
+ * ・Origin / Referer 403への自動再試行
+ * ・詳細ログ
+ *************************************************/
+
+
+/*************************************************
+ * 1. 設定取得
+ *************************************************/
+
+function RAKUTEN2_getProperty_(name) {
+  var value = PropertiesService
+    .getScriptProperties()
+    .getProperty(name);
+
+  if (!value) {
+    throw new Error(
+      'GASのスクリプトプロパティ「' +
+      name +
+      '」が設定されていません。'
+    );
+  }
+
+  return String(value).trim();
+}
+
+
+/*************************************************
+ * 2. 楽天API設定
+ *************************************************/
+
+function RAKUTEN2_getConfig_() {
+
+  var config = {};
+
+  config.applicationId =
+    RAKUTEN2_getProperty_('RAKUTEN_APP_ID');
+
+  config.accessKey =
+    RAKUTEN2_getProperty_('RAKUTEN_ACCESS_KEY');
+
+  config.affiliateId =
+    PropertiesService
+      .getScriptProperties()
+      .getProperty('RAKUTEN_AFFILIATE_ID');
+
+  if (config.affiliateId) {
+    config.affiliateId =
+      String(config.affiliateId).trim();
+  }
+
+  config.apiUrl =
+    'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701';
+
+  return config;
+}
+
+
+/*************************************************
+ * 3. 共通HTTPリクエスト
+ *************************************************/
+
+function RAKUTEN2_fetch_(url, options) {
+
+  var response;
+  var code;
+  var body;
+
+  options = options || {};
+
+  if (!options.method) {
+    options.method = 'get';
+  }
+
+  if (!options.muteHttpExceptions) {
+    options.muteHttpExceptions = true;
+  }
+
+  response = UrlFetchApp.fetch(url, options);
+
+  code = response.getResponseCode();
+  body = response.getContentText();
+
+  /*
+   * 楽天側で
+   *
+   * REQUEST_CONTEXT_BODY_HTTP_REFERRER_MISSING
+   *
+   * が返る場合があるため、
+   * まず通常リクエストを実行し、
+   * その場合だけOrigin/Referer付きで再試行する。
+   */
+
+  if (
+    code === 403 &&
+    body.indexOf(
+      'REQUEST_CONTEXT_BODY_HTTP_REFERRER_MISSING'
+    ) !== -1
+  ) {
+
+    var retryOptions = {};
+
+    Object.keys(options).forEach(function(key) {
+      retryOptions[key] = options[key];
+    });
+
+    retryOptions.headers = {};
+
+    if (options.headers) {
+      Object.keys(options.headers).forEach(function(key) {
+        retryOptions.headers[key] =
+          options.headers[key];
+      });
+    }
+
+    retryOptions.headers['Origin'] =
+      'https://tansinfuninkazu.hatenablog.com';
+
+    retryOptions.headers['Referer'] =
+      'https://tansinfuninkazu.hatenablog.com/';
+
+    response =
+      UrlFetchApp.fetch(url, retryOptions);
+
+    code = response.getResponseCode();
+    body = response.getContentText();
+  }
+
+  return {
+    response: response,
+    code: code,
+    body: body
+  };
+}
+
+
+/*************************************************
+ * 4. URLパラメータ生成
+ *************************************************/
+
+function RAKUTEN2_addParam_(url, key, value) {
+
+  if (
+    value === null ||
+    value === undefined ||
+    value === ''
+  ) {
+    return url;
+  }
+
+  var separator =
+    url.indexOf('?') === -1
+      ? '?'
+      : '&';
+
+  return (
+    url +
+    separator +
+    encodeURIComponent(key) +
+    '=' +
+    encodeURIComponent(value)
+  );
+}
+
+
+/*************************************************
+ * 5. 楽天商品検索
+ *************************************************/
+
+function RAKUTEN2_searchItems(keyword, options) {
+
+  if (!keyword) {
+    throw new Error(
+      '検索キーワードが指定されていません。'
+    );
+  }
+
+  options = options || {};
+
+  var config =
+    RAKUTEN2_getConfig_();
+
+  var url =
+    config.apiUrl;
+
+  /*
+   * 必須
+   */
+  url =
+    RAKUTEN2_addParam_(
+      url,
+      'applicationId',
+      config.applicationId
+    );
+
+  /*
+   * アクセスキー
+   */
+  url =
+    RAKUTEN2_addParam_(
+      url,
+      'accessKey',
+      config.accessKey
+    );
+
+  /*
+   * 検索キーワード
+   */
+  url =
+    RAKUTEN2_addParam_(
+      url,
+      'keyword',
+      keyword
+    );
+
+  /*
+   * JSON形式
+   */
+  url =
+    RAKUTEN2_addParam_(
+      url,
+      'formatVersion',
+      2
+    );
+
+  /*
+   * 取得件数
+   */
+  url =
+    RAKUTEN2_addParam_(
+      url,
+      'hits',
+      options.hits || 10
+    );
+
+  /*
+   * ページ
+   */
+  url =
+    RAKUTEN2_addParam_(
+      url,
+      'page',
+      options.page || 1
+    );
+
+  /*
+   * アフィリエイトID
+   *
+   * 設定されている場合のみ送信
+   */
+  if (config.affiliateId) {
+
+    url =
+      RAKUTEN2_addParam_(
+        url,
+        'affiliateId',
+        config.affiliateId
+      );
+  }
+
+  /*
+   * API実行
+   */
+  var result =
+    RAKUTEN2_fetch_(
+      url,
+      {
+        method: 'get',
+        muteHttpExceptions: true
+      }
+    );
+
+  /*
+   * ログ
+   */
+  console.log(
+    '楽天API HTTP: ' +
+    result.code
+  );
+
+  console.log(
+    '楽天API URL: ' +
+    url.replace(
+      /accessKey=[^&]+/g,
+      'accessKey=********'
+    )
+  );
+
+  /*
+   * HTTPエラー
+   */
+  if (
+    result.code < 200 ||
+    result.code >= 300
+  ) {
+
+    throw new Error(
+      '楽天APIエラー HTTP ' +
+      result.code +
+      '\n' +
+      result.body
+    );
+  }
+
+  /*
+   * JSON解析
+   */
+  var json;
+
+  try {
+
+    json =
+      JSON.parse(result.body);
+
+  } catch (e) {
+
+    throw new Error(
+      '楽天APIのJSON解析に失敗しました。\n' +
+      result.body
+    );
+  }
+
+  /*
+   * API側エラー
+   */
+  if (json.errors) {
+
+    throw new Error(
+      '楽天APIエラー:\n' +
+      JSON.stringify(
+        json.errors,
+        null,
+        2
+      )
+    );
+  }
+
+  return json;
+}
+
+
+/*************************************************
+ * 6. 商品一覧を扱いやすい形に変換
+ *************************************************/
+
+function RAKUTEN2_normalizeItems_(json) {
+
+  var items = [];
+
+  if (
+    !json ||
+    !json.Items
+  ) {
+    return items;
+  }
+
+  json.Items.forEach(function(wrapper) {
+
+    var item =
+      wrapper.Item ||
+      wrapper.item ||
+      wrapper;
+
+    items.push({
+
+      itemName:
+        item.itemName || '',
+
+      itemCode:
+        item.itemCode || '',
+
+      itemPrice:
+        item.itemPrice || '',
+
+      itemUrl:
+        item.itemUrl || '',
+
+      affiliateUrl:
+        item.affiliateUrl || '',
+
+      shopName:
+        item.shopName || '',
+
+      shopUrl:
+        item.shopUrl || '',
+
+      imageUrl:
+        item.mediumImageUrls &&
+        item.mediumImageUrls.length
+          ? item.mediumImageUrls[0].imageUrl
+          : '',
+
+      reviewCount:
+        item.reviewCount || 0,
+
+      reviewAverage:
+        item.reviewAverage || 0
+
+    });
+
+  });
+
+  return items;
+}
+
+
+/*************************************************
+ * 7. 楽天商品検索＋整理済み結果
+ *************************************************/
+
+function RAKUTEN2_search(keyword) {
+
+  var json =
+    RAKUTEN2_searchItems(
+      keyword,
+      {
+        hits: 10,
+        page: 1
+      }
+    );
+
+  return {
+    keyword: keyword,
+
+    count:
+      json.count || 0,
+
+    page:
+      json.page || 1,
+
+    first:
+      json.first || 0,
+
+    last:
+      json.last || 0,
+
+    items:
+      RAKUTEN2_normalizeItems_(
+        json
+      )
+  };
+}
+
+
+/*************************************************
+ * 8. テスト
+ *************************************************/
+
+function testRakutenAffiliate() {
+
+  console.log(
+    '===== 楽天アフィリエイトテスト開始 ====='
+  );
+
+  var config =
+    RAKUTEN2_getConfig_();
+
+  console.log(
+    'Application ID: ' +
+    config.applicationId
+  );
+
+  console.log(
+    'Access Key: 設定済み'
+  );
+
+  console.log(
+    'Affiliate ID: ' +
+    (
+      config.affiliateId
+        ? '設定済み'
+        : '未設定'
+    )
+  );
+
+  console.log(
+    'API URL: ' +
+    config.apiUrl
+  );
+
+  /*
+   * テスト検索
+   */
+  var result =
+    RAKUTEN2_search(
+      'フライパン'
+    );
+
+  console.log(
+    '検索結果件数: ' +
+    result.count
+  );
+
+  console.log(
+    '取得商品数: ' +
+    result.items.length
+  );
+
+  /*
+   * 先頭商品
+   */
+  if (
+    result.items.length > 0
+  ) {
+
+    var item =
+      result.items[0];
+
+    console.log(
+      '商品名: ' +
+      item.itemName
+    );
+
+    console.log(
+      '価格: ' +
+      item.itemPrice
+    );
+
+    console.log(
+      'ショップ: ' +
+      item.shopName
+    );
+
+    console.log(
+      '商品URL: ' +
+      item.itemUrl
+    );
+
+    console.log(
+      'アフィリエイトURL: ' +
+      (
+        item.affiliateUrl ||
+        'APIから未返却'
+      )
+    );
+  }
+
+  console.log(
+    '===== 楽天アフィリエイトテスト終了 ====='
+  );
+
+  return result;
+}
+
+
+/*************************************************
+ * 9. 任意キーワード検索テスト
+ *************************************************/
+
+function testRakutenSearchKeyword() {
+
+  var keyword =
+    'CAROTE フライパン';
+
+  var result =
+    RAKUTEN2_search(
+      keyword
+    );
+
+  console.log(
+    JSON.stringify(
+      result,
+      null,
+      2
+    )
+  );
+
+  return result;
+}
+
+
+/*************************************************
+ * 10. 商品1件取得
+ *************************************************/
+
+function RAKUTEN2_getFirstItem(
+  keyword
+) {
+
+  var result =
+    RAKUTEN2_search(
+      keyword
+    );
+
+  if (
+    !result.items ||
+    result.items.length === 0
+  ) {
+
+    return null;
+  }
+
+  return result.items[0];
+}
+
+
+/*************************************************
+ * 11. アフィリエイトURL取得
+ *************************************************/
+
+function RAKUTEN2_getAffiliateUrl(
+  keyword
+) {
+
+  var item =
+    RAKUTEN2_getFirstItem(
+      keyword
+    );
+
+  if (!item) {
+
+    throw new Error(
+      '商品が見つかりませんでした。\n' +
+      '検索キーワード: ' +
+      keyword
+    );
+  }
+
+  /*
+   * affiliateUrl がAPIから返っていれば
+   * それを使用
+   */
+  if (item.affiliateUrl) {
+
+    return item.affiliateUrl;
+  }
+
+  /*
+   * 返らない場合は通常商品URLを返す
+   */
+  return item.itemUrl;
+}
+
+
+/*************************************************
+ * 12. ブログ記事用の商品情報生成
+ *************************************************/
+
+function RAKUTEN2_createProductData(
+  keyword
+) {
+
+  var item =
+    RAKUTEN2_getFirstItem(
+      keyword
+    );
+
+  if (!item) {
+
+    return {
+      success: false,
+      keyword: keyword,
+      message: '商品が見つかりませんでした。'
+    };
+  }
+
+  return {
+
+    success: true,
+
+    keyword:
+      keyword,
+
+    productName:
+      item.itemName,
+
+    price:
+      item.itemPrice,
+
+    shopName:
+      item.shopName,
+
+    productUrl:
+      item.itemUrl,
+
+    affiliateUrl:
+      item.affiliateUrl ||
+      item.itemUrl,
+
+    imageUrl:
+      item.imageUrl,
+
+    reviewCount:
+      item.reviewCount,
+
+    reviewAverage:
+      item.reviewAverage
+
+  };
+}
+
+
+/*************************************************
+ * 13. ブログ用HTML生成
+ *************************************************/
+
+function RAKUTEN2_createAffiliateHtml(
+  keyword
+) {
+
+  var product =
+    RAKUTEN2_createProductData(
+      keyword
+    );
+
+  if (!product.success) {
+
+    return '';
+  }
+
+  var url =
+    product.affiliateUrl;
+
+  var name =
+    product.productName;
+
+  var price =
+    product.price;
+
+  var html = '';
+
+  html +=
+    '<div class="rakuten-affiliate">' +
+    '\n';
+
+  html +=
+    '<p><strong>' +
+    escapeHtml_(name) +
+    '</strong></p>' +
+    '\n';
+
+  if (price) {
+
+    html +=
+      '<p>価格：' +
+      escapeHtml_(String(price)) +
+      '円</p>' +
+      '\n';
+  }
+
+  html +=
+    '<p>' +
+    '<a href="' +
+    escapeAttribute_(url) +
+    '" ' +
+    'target="_blank" ' +
+    'rel="nofollow sponsored">' +
+    '楽天市場で商品を見る' +
+    '</a>' +
+    '</p>' +
+    '\n';
+
+  html +=
+    '</div>';
+
+  return html;
+}
+
+
+/*************************************************
+ * 14. HTMLエスケープ
+ *************************************************/
+
+function escapeHtml_(text) {
+
+  if (
+    text === null ||
+    text === undefined
+  ) {
+    return '';
+  }
+
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+
+/*************************************************
+ * 15. URL属性エスケープ
+ *************************************************/
+
+function escapeAttribute_(text) {
+
+  return escapeHtml_(text);
+}
+
+
+/*************************************************
+ * 16. 設定確認だけ行う
+ *
+ * API通信はしない
+ *************************************************/
+
+function checkRakutenSettings() {
+
+  var props =
+    PropertiesService
+      .getScriptProperties();
+
+  var appId =
+    props.getProperty(
+      'RAKUTEN_APP_ID'
+    );
+
+  var accessKey =
+    props.getProperty(
+      'RAKUTEN_ACCESS_KEY'
+    );
+
+  var affiliateId =
+    props.getProperty(
+      'RAKUTEN_AFFILIATE_ID'
+    );
+
+  var result = {
+
+    applicationId:
+      appId
+        ? '設定済み'
+        : '未設定',
+
+    accessKey:
+      accessKey
+        ? '設定済み'
+        : '未設定',
+
+    affiliateId:
+      affiliateId
+        ? '設定済み'
+        : '未設定'
+
+  };
+
+  console.log(
+    JSON.stringify(
+      result,
+      null,
+      2
+    )
+  );
+
+  return result;
+}
+
+
+/*************************************************
+ * 17. API接続診断
+ *************************************************/
+
+function diagnoseRakutenApi() {
+
+  console.log(
+    '===== 楽天API診断開始 ====='
+  );
+
+  var result = {};
+
+  try {
+
+    result.settings =
+      checkRakutenSettings();
+
+  } catch (e) {
+
+    result.settingsError =
+      e.message;
+
+    console.log(
+      '設定エラー: ' +
+      e.message
+    );
+
+    return result;
+  }
+
+  try {
+
+    var searchResult =
+      RAKUTEN2_search(
+        'フライパン'
+      );
+
+    result.api =
+      '接続成功';
+
+    result.http =
+      '200';
+
+    result.count =
+      searchResult.count;
+
+    result.items =
+      searchResult.items.length;
+
+  } catch (e) {
+
+    result.api =
+      '接続失敗';
+
+    result.error =
+      e.message;
+
+    console.log(
+      'APIエラー: ' +
+      e.message
+    );
+  }
+
+  console.log(
+    '===== 楽天API診断終了 ====='
+  );
+
+  console.log(
+    JSON.stringify(
+      result,
+      null,
+      2
+    )
+  );
+
+  return result;
+}
+
+
+/*************************************************
+ * 18. 商品候補を複数取得
+ *************************************************/
+
+function RAKUTEN2_getProductCandidates(
+  keyword
+) {
+
+  var json =
+    RAKUTEN2_searchItems(
+      keyword,
+      {
+        hits: 10,
+        page: 1
+      }
+    );
+
+  return RAKUTEN2_normalizeItems_(
+    json
+  );
+}
+
+
+/*************************************************
+ * 19. 料理記事向け商品検索
+ *
+ * 例：
+ * 「鶏むね肉 ガーリックソテー」
+ * ↓
+ * フライパン
+ * ↓
+ * 楽天商品検索
+ *************************************************/
+
+function searchRakutenForCooking(
+  keyword
+) {
+
+  var cookingKeywords = [
+
+    'フライパン',
+    '鍋',
+    '包丁',
+    'まな板',
+    '保存容器',
+    'キッチン用品'
+
+  ];
+
+  var results = [];
+
+  cookingKeywords.forEach(
+    function(productKeyword) {
+
+      try {
+
+        var items =
+          RAKUTEN2_getProductCandidates(
+            productKeyword
+          );
+
+        results.push({
+
+          keyword:
+            productKeyword,
+
+          items:
+            items
+
+        });
+
+      } catch (e) {
+
+        results.push({
+
+          keyword:
+            productKeyword,
+
+          error:
+            e.message,
+
+          items:
+            []
+
+        });
+
+      }
+
+    }
+  );
+
+  return {
+
+    cookingKeyword:
+      keyword,
+
+    results:
+      results
+
+  };
+}
+
+
+/*************************************************
+ * 20. 保存確認用
+ *
+ * この関数は外部通信しない。
+ * 保存できるかだけを確認する目的。
+ *************************************************/
+
+function testRakutenCodeSaved() {
+
+  console.log(
+    'RakutenAffiliate.gs 保存確認OK'
+  );
+
+  return 'OK';
+}
