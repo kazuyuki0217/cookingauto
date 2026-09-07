@@ -1,0 +1,119 @@
+/*************************************************
+ * 楽天API ブラウザ方式 最小テスト
+ *
+ * 既存のRakutenAffiliate.gsは変更しない
+ *************************************************/
+
+function doGet() {
+  const template = HtmlService.createTemplate(`
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>楽天APIテスト</title>
+</head>
+<body>
+  <h3>楽天API ブラウザテスト</h3>
+
+  <button onclick="searchRakuten()">
+    フライパンを検索
+  </button>
+
+  <pre id="result">検索待機中</pre>
+
+<script>
+async function searchRakuten() {
+  const result = document.getElementById('result');
+  result.textContent = '楽天APIへ接続中...';
+
+  try {
+    const config = await new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)
+        .getRakutenBrowserConfig();
+    });
+
+    const response = await fetch(config.url, {
+      method: 'GET',
+      mode: 'cors',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+
+    const text = await response.text();
+
+    result.textContent =
+      'HTTP: ' + response.status +
+      '\\n\\n' + text;
+
+  } catch (error) {
+    result.textContent =
+      'ブラウザ通信エラー\\n\\n' +
+      error.message;
+  }
+}
+</script>
+</body>
+</html>
+  `);
+
+  return template
+    .evaluate()
+    .setTitle('楽天APIテスト')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+
+/**
+ * ブラウザへ楽天API URLを渡す
+ *
+ * 認証情報そのものはブラウザへ渡さず、
+ * GAS側でURLを生成する。
+ */
+function getRakutenBrowserConfig() {
+
+  const props = PropertiesService.getScriptProperties();
+
+  const appId =
+    props.getProperty('RAKUTEN_APP_ID');
+
+  const accessKey =
+    props.getProperty('RAKUTEN_ACCESS_KEY');
+
+  const affiliateId =
+    props.getProperty('RAKUTEN_AFFILIATE_ID');
+
+  if (!appId || !accessKey || !affiliateId) {
+    throw new Error(
+      '楽天APIの認証情報が設定されていません。'
+    );
+  }
+
+  const endpoint =
+    'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701';
+
+  const params = {
+    applicationId: appId,
+    accessKey: accessKey,
+    affiliateId: affiliateId,
+    keyword: 'フライパン',
+    formatVersion: '2',
+    hits: '3',
+    page: '1'
+  };
+
+  const query = Object.keys(params)
+    .map(function(key) {
+      return encodeURIComponent(key) +
+        '=' +
+        encodeURIComponent(params[key]);
+    })
+    .join('&');
+
+  return {
+    url: endpoint + '?' + query
+  };
+}
