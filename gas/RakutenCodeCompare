@@ -1,0 +1,404 @@
+/*************************************************
+ * 楽天コード自動比較
+ *
+ * GASプロジェクト内のソースコードを自動取得し、
+ * 楽天関連4ファイルを比較する。
+ *
+ * 比較対象：
+ * RakutenAffiliate
+ * RakutenAffiliateバックアップ
+ * Rakuten403Fix
+ * Rakutenbrousertest
+ *************************************************/
+
+function compareRakutenFiles() {
+
+  const targetNames = [
+    'RakutenAffiliate',
+    'RakutenAffiliateバックアップ',
+    'Rakuten403Fix',
+    'Rakutenbrousertest'
+  ];
+
+  Logger.log('========================================');
+  Logger.log('楽天コード自動比較 開始');
+  Logger.log('========================================');
+
+  const token = ScriptApp.getOAuthToken();
+  const scriptId = ScriptApp.getScriptId();
+
+  const url =
+    'https://script.googleapis.com/v1/projects/' +
+    encodeURIComponent(scriptId) +
+    '/content';
+
+  const response = UrlFetchApp.fetch(url, {
+    method: 'get',
+    headers: {
+      Authorization: 'Bearer ' + token
+    },
+    muteHttpExceptions: true
+  });
+
+  const status = response.getResponseCode();
+
+  if (status !== 200) {
+    throw new Error(
+      'Apps Script API取得失敗 HTTP ' +
+      status +
+      '\n' +
+      response.getContentText()
+    );
+  }
+
+  const project = JSON.parse(response.getContentText());
+  const files = project.files || [];
+
+  Logger.log('GASプロジェクトファイル数: ' + files.length);
+
+  const sourceMap = {};
+
+  files.forEach(function(file) {
+
+    if (!file.name) return;
+
+    const cleanName = file.name
+      .replace(/^gas\//, '')
+      .replace(/\.gs$/i, '');
+
+    if (targetNames.indexOf(cleanName) !== -1) {
+
+      let source = '';
+
+      if (file.source) {
+        source = file.source;
+      }
+
+      sourceMap[cleanName] = source;
+
+      Logger.log(
+        '取得: ' +
+        cleanName +
+        ' / ' +
+        source.length +
+        '文字'
+      );
+    }
+  });
+
+  Logger.log('');
+  Logger.log('---------- ファイル存在確認 ----------');
+
+  targetNames.forEach(function(name) {
+
+    if (sourceMap[name] !== undefined) {
+      Logger.log('OK: ' + name);
+    } else {
+      Logger.log('未取得: ' + name);
+    }
+  });
+
+  Logger.log('');
+  Logger.log('---------- 楽天API構造比較 ----------');
+
+  targetNames.forEach(function(name) {
+
+    if (sourceMap[name] === undefined) return;
+
+    Logger.log('');
+    Logger.log('===== ' + name + ' =====');
+
+    const source = sourceMap[name];
+
+    logMatches(
+      source,
+      'API URL',
+      /https?:\/\/[^\s'"]*rakuten[^\s'"]*/gi
+    );
+
+    logMatches(
+      source,
+      '楽天APIエンドポイント',
+      /IchibaItem\/Search\/[0-9]+/gi
+    );
+
+    logMatches(
+      source,
+      'applicationId',
+      /applicationId/gi
+    );
+
+    logMatches(
+      source,
+      'accessKey',
+      /accessKey/gi
+    );
+
+    logMatches(
+      source,
+      'affiliateId',
+      /affiliateId/gi
+    );
+
+    logMatches(
+      source,
+      'keyword',
+      /keyword/gi
+    );
+
+    logMatches(
+      source,
+      'Origin',
+      /Origin/gi
+    );
+
+    logMatches(
+      source,
+      'Referer',
+      /Referer/gi
+    );
+
+    logMatches(
+      source,
+      'UrlFetchApp',
+      /UrlFetchApp/gi
+    );
+
+    logMatches(
+      source,
+      'fetch',
+      /\bfetch\s*\(/gi
+    );
+
+    logMatches(
+      source,
+      'CORS',
+      /cors/gi
+    );
+
+    logMatches(
+      source,
+      '商品検索',
+      /商品検索|searchItems|検索/gi
+    );
+  });
+
+  Logger.log('');
+  Logger.log('---------- 重要コード行比較 ----------');
+
+  const keywords = [
+    'IchibaItem/Search',
+    'applicationId',
+    'accessKey',
+    'affiliateId',
+    'Origin',
+    'Referer',
+    'UrlFetchApp.fetch',
+    'fetch(',
+    'muteHttpExceptions',
+    'HTTP',
+    'items',
+    'affiliateUrl',
+    'itemName'
+  ];
+
+  targetNames.forEach(function(name) {
+
+    if (sourceMap[name] === undefined) return;
+
+    Logger.log('');
+    Logger.log('===== ' + name + ' =====');
+
+    const lines = sourceMap[name].split('\n');
+
+    lines.forEach(function(line, index) {
+
+      const found = keywords.some(function(keyword) {
+        return line.indexOf(keyword) !== -1;
+      });
+
+      if (found) {
+        Logger.log(
+          (index + 1) +
+          ': ' +
+          line.trim()
+        );
+      }
+    });
+  });
+
+  Logger.log('');
+  Logger.log('---------- ファイル間差分 ----------');
+
+  comparePair(
+    sourceMap,
+    'RakutenAffiliate',
+    'RakutenAffiliateバックアップ'
+  );
+
+  comparePair(
+    sourceMap,
+    'RakutenAffiliate',
+    'Rakuten403Fix'
+  );
+
+  comparePair(
+    sourceMap,
+    'RakutenAffiliate',
+    'Rakutenbrousertest'
+  );
+
+  comparePair(
+    sourceMap,
+    'RakutenAffiliateバックアップ',
+    'Rakuten403Fix'
+  );
+
+  comparePair(
+    sourceMap,
+    'RakutenAffiliateバックアップ',
+    'Rakutenbrousertest'
+  );
+
+  comparePair(
+    sourceMap,
+    'Rakuten403Fix',
+    'Rakutenbrousertest'
+  );
+
+  Logger.log('');
+  Logger.log('========================================');
+  Logger.log('楽天コード自動比較 完了');
+  Logger.log('========================================');
+}
+
+
+/*************************************************
+ * キーワード該当箇所を表示
+ *************************************************/
+
+function logMatches(source, label, regex) {
+
+  const matches = source.match(regex);
+
+  if (!matches || matches.length === 0) {
+    Logger.log(label + ': なし');
+    return;
+  }
+
+  const unique = {};
+
+  matches.forEach(function(value) {
+    unique[value] = true;
+  });
+
+  Logger.log(
+    label +
+    ': ' +
+    Object.keys(unique).join(' | ')
+  );
+}
+
+
+/*************************************************
+ * 2ファイルの構造比較
+ *************************************************/
+
+function comparePair(sourceMap, nameA, nameB) {
+
+  if (
+    sourceMap[nameA] === undefined ||
+    sourceMap[nameB] === undefined
+  ) {
+    return;
+  }
+
+  const a = normalizeCode(sourceMap[nameA]);
+  const b = normalizeCode(sourceMap[nameB]);
+
+  Logger.log('');
+  Logger.log(
+    '--- ' +
+    nameA +
+    ' ⇔ ' +
+    nameB +
+    ' ---'
+  );
+
+  Logger.log(
+    nameA +
+    ' 行数: ' +
+    sourceMap[nameA].split('\n').length
+  );
+
+  Logger.log(
+    nameB +
+    ' 行数: ' +
+    sourceMap[nameB].split('\n').length
+  );
+
+  Logger.log(
+    '同一コード: ' +
+    (a === b ? 'YES' : 'NO')
+  );
+
+  if (a === b) return;
+
+  const aLines = a.split('\n');
+  const bLines = b.split('\n');
+
+  const max = Math.max(
+    aLines.length,
+    bLines.length
+  );
+
+  let differences = 0;
+
+  for (let i = 0; i < max; i++) {
+
+    const lineA = aLines[i] || '';
+    const lineB = bLines[i] || '';
+
+    if (lineA !== lineB) {
+
+      differences++;
+
+      if (differences <= 30) {
+
+        Logger.log(
+          '差分 行 ' +
+          (i + 1)
+        );
+
+        Logger.log(
+          ' A: ' +
+          lineA
+        );
+
+        Logger.log(
+          ' B: ' +
+          lineB
+        );
+      }
+    }
+  }
+
+  Logger.log(
+    '差分行数: ' +
+    differences
+  );
+}
+
+
+/*************************************************
+ * 比較用正規化
+ *************************************************/
+
+function normalizeCode(source) {
+
+  return source
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+$/gm, '')
+    .trim();
+}
