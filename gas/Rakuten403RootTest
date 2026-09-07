@@ -1,0 +1,221 @@
+/*************************************************
+ * 楽天API 403 根本原因テスト
+ *
+ * 目的：
+ * 1. 認証情報が正しいか
+ * 2. Refererなし
+ * 3. script.google.com
+ * 4. Hatena Blog
+ * 5. Origin/Refererなし
+ *
+ * ※秘密情報はログに表示しません
+ *************************************************/
+
+const RAKUTEN_403_TEST_URL =
+  'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701';
+
+function Rakuten403RootTest() {
+
+  const props =
+    PropertiesService.getScriptProperties();
+
+  const appId =
+    props.getProperty('RAKUTEN_APP_ID');
+
+  const accessKey =
+    props.getProperty('RAKUTEN_ACCESS_KEY');
+
+  const affiliateId =
+    props.getProperty('RAKUTEN_AFFILIATE_ID');
+
+  Logger.log('===== 楽天403根本原因テスト開始 =====');
+
+  if (!appId) {
+    throw new Error('RAKUTEN_APP_ID が未設定です。');
+  }
+
+  if (!accessKey) {
+    throw new Error('RAKUTEN_ACCESS_KEY が未設定です。');
+  }
+
+  if (!affiliateId) {
+    throw new Error('RAKUTEN_AFFILIATE_ID が未設定です。');
+  }
+
+  Logger.log('Application ID: 設定済み');
+  Logger.log('Access Key: 設定済み');
+  Logger.log('Affiliate ID: 設定済み');
+
+  const params = [
+    'applicationId=' + encodeURIComponent(appId),
+    'accessKey=' + encodeURIComponent(accessKey),
+    'affiliateId=' + encodeURIComponent(affiliateId),
+    'keyword=' + encodeURIComponent('フライパン'),
+    'hits=1',
+    'format=json',
+    'formatVersion=2'
+  ];
+
+  const url =
+    RAKUTEN_403_TEST_URL +
+    '?' +
+    params.join('&');
+
+  rakuten403TestRequest_(
+    'TEST-1 Refererなし',
+    url,
+    {}
+  );
+
+  rakuten403TestRequest_(
+    'TEST-2 script.google.com',
+    url,
+    {
+      'Origin': 'https://script.google.com',
+      'Referer': 'https://script.google.com/'
+    }
+  );
+
+  rakuten403TestRequest_(
+    'TEST-3 Hatena Blog',
+    url,
+    {
+      'Origin': 'https://tansinfuninkazu.hatenablog.com',
+      'Referer': 'https://tansinfuninkazu.hatenablog.com/'
+    }
+  );
+
+  rakuten403TestRequest_(
+    'TEST-4 script.google.com + Hatena Referer',
+    url,
+    {
+      'Origin': 'https://script.google.com',
+      'Referer': 'https://tansinfuninkazu.hatenablog.com/'
+    }
+  );
+
+  Logger.log('===== 楽天403根本原因テスト終了 =====');
+}
+
+
+/*************************************************
+ * HTTPテスト
+ *************************************************/
+
+function rakuten403TestRequest_(
+  testName,
+  url,
+  headers
+) {
+
+  Logger.log('');
+  Logger.log('--- ' + testName + ' ---');
+
+  try {
+
+    const response =
+      UrlFetchApp.fetch(
+        url,
+        {
+          method: 'get',
+          muteHttpExceptions: true,
+          headers: Object.assign(
+            {
+              'Accept': 'application/json'
+            },
+            headers
+          )
+        }
+      );
+
+    const status =
+      response.getResponseCode();
+
+    const body =
+      response.getContentText();
+
+    Logger.log(
+      'HTTP: ' + status
+    );
+
+    if (status === 200) {
+
+      Logger.log(
+        '★ 成功：HTTP 200'
+      );
+
+      try {
+
+        const data =
+          JSON.parse(body);
+
+        const items =
+          data.Items ||
+          data.items ||
+          [];
+
+        Logger.log(
+          '商品件数: ' +
+          items.length
+        );
+
+      } catch (e) {
+
+        Logger.log(
+          'JSON解析: 確認必要'
+        );
+      }
+
+      return;
+    }
+
+    Logger.log(
+      'エラー本文: ' +
+      body.substring(0, 1000)
+    );
+
+  } catch (error) {
+
+    Logger.log(
+      '通信例外: ' +
+      error.message
+    );
+  }
+}
+
+
+/*************************************************
+ * 設定だけ確認
+ *************************************************/
+
+function Rakuten403CheckSettings() {
+
+  const props =
+    PropertiesService.getScriptProperties();
+
+  const appId =
+    props.getProperty('RAKUTEN_APP_ID');
+
+  const accessKey =
+    props.getProperty('RAKUTEN_ACCESS_KEY');
+
+  const affiliateId =
+    props.getProperty('RAKUTEN_AFFILIATE_ID');
+
+  Logger.log('===== 楽天設定確認 =====');
+
+  Logger.log(
+    'RAKUTEN_APP_ID: ' +
+    (appId ? '設定済み' : '未設定')
+  );
+
+  Logger.log(
+    'RAKUTEN_ACCESS_KEY: ' +
+    (accessKey ? '設定済み' : '未設定')
+  );
+
+  Logger.log(
+    'RAKUTEN_AFFILIATE_ID: ' +
+    (affiliateId ? '設定済み' : '未設定')
+  );
+}
