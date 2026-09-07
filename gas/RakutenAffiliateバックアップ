@@ -1,0 +1,411 @@
+/**
+ * 楽天アフィリエイト自動化
+ * 現行 楽天市場商品検索API対応
+ *
+ * 使用するスクリプトプロパティ
+ * RAKUTEN_APP_ID
+ * RAKUTEN_ACCESS_KEY
+ * RAKUTEN_AFFILIATE_ID
+ */
+
+const RAKUTEN_API_BASE =
+  'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701';
+
+
+/**
+ * 楽天API設定取得
+ */
+function getRakutenConfig_() {
+
+  const props = PropertiesService.getScriptProperties();
+
+  const appId = props.getProperty('RAKUTEN_APP_ID');
+  const accessKey = props.getProperty('RAKUTEN_ACCESS_KEY');
+  const affiliateId = props.getProperty('RAKUTEN_AFFILIATE_ID');
+
+  if (!appId) {
+    throw new Error('RAKUTEN_APP_ID が設定されていません。');
+  }
+
+  if (!accessKey) {
+    throw new Error('RAKUTEN_ACCESS_KEY が設定されていません。');
+  }
+
+  if (!affiliateId) {
+    throw new Error('RAKUTEN_AFFILIATE_ID が設定されていません。');
+  }
+
+  return {
+    appId: appId,
+    accessKey: accessKey,
+    affiliateId: affiliateId
+  };
+}
+
+
+/**
+ * 楽天市場商品検索
+ *
+ * @param {string} keyword 検索キーワード
+ * @param {number} maxResults 最大件数
+ * @return {Array} 商品一覧
+ */
+function searchRakutenProducts(keyword, maxResults) {
+
+  if (!keyword) {
+    throw new Error('検索キーワードが指定されていません。');
+  }
+
+  const config = getRakutenConfig_();
+
+  const hits = Math.min(
+    Math.max(Number(maxResults) || 10, 1),
+    30
+  );
+
+  const params = {
+    applicationId: config.appId,
+    accessKey: config.accessKey,
+    affiliateId: config.affiliateId,
+    keyword: keyword,
+    hits: hits,
+    format: 'json',
+    formatVersion: 2,
+    imageFlag: 1
+  };
+
+  const query = Object.keys(params)
+    .map(function(key) {
+      return encodeURIComponent(key) +
+        '=' +
+        encodeURIComponent(params[key]);
+    })
+    .join('&');
+
+  const url = RAKUTEN_API_BASE + '?' + query;
+
+  const response = UrlFetchApp.fetch(url, {
+    method: 'get',
+    muteHttpExceptions: true,
+    headers: {
+      Accept: 'application/json'
+    }
+  });
+
+  const status = response.getResponseCode();
+  const body = response.getContentText();
+
+  if (status !== 200) {
+    throw new Error(
+      '楽天APIエラー HTTP ' +
+      status +
+      ' ' +
+      body
+    );
+  }
+
+  let data;
+
+  try {
+    data = JSON.parse(body);
+  } catch (e) {
+    throw new Error(
+      '楽天APIレスポンスのJSON解析に失敗しました。'
+    );
+  }
+
+  if (!data.Items || !Array.isArray(data.Items)) {
+    return [];
+  }
+
+  return data.Items.map(function(item) {
+
+    const product = item.Item || item;
+
+    return {
+      name: product.itemName || '',
+      price: product.itemPrice || 0,
+      url: product.itemUrl || '',
+      affiliateUrl: product.affiliateUrl || '',
+      image: getRakutenImage_(product),
+      shop: product.shopName || '',
+      shopUrl: product.shopUrl || '',
+      reviewCount: product.reviewCount || 0,
+      reviewAverage: product.reviewAverage || 0,
+      availability: product.availability || '',
+      genreId: product.genreId || '',
+      catchcopy: product.catchcopy || '',
+      itemCaption: product.itemCaption || ''
+    };
+  });
+}
+
+
+/**
+ * 商品画像取得
+ */
+function getRakutenImage_(product) {
+
+  if (
+    product.mediumImageUrls &&
+    product.mediumImageUrls.length > 0
+  ) {
+    const image = product.mediumImageUrls[0];
+
+    if (typeof image === 'string') {
+      return image;
+    }
+
+    if (image && image.imageUrl) {
+      return image.imageUrl;
+    }
+  }
+
+  if (
+    product.smallImageUrls &&
+    product.smallImageUrls.length > 0
+  ) {
+    const image = product.smallImageUrls[0];
+
+    if (typeof image === 'string') {
+      return image;
+    }
+
+    if (image && image.imageUrl) {
+      return image.imageUrl;
+    }
+  }
+
+  return '';
+}
+
+
+/**
+ * 料理関連商品の検索
+ */
+function searchRakutenCookingProducts(cookingKeyword) {
+
+  if (!cookingKeyword) {
+    throw new Error('料理キーワードが指定されていません。');
+  }
+
+  const keywords = [
+    cookingKeyword,
+    cookingKeyword + ' フライパン',
+    cookingKeyword + ' 鍋',
+    cookingKeyword + ' 包丁',
+    cookingKeyword + ' キッチン用品',
+    cookingKeyword + ' 調理器具'
+  ];
+
+  const allProducts = [];
+  const seen = {};
+
+  keywords.forEach(function(keyword) {
+
+    try {
+
+      const products =
+        searchRakutenProducts(keyword, 10);
+
+      products.forEach(function(product) {
+
+        const key =
+          product.affiliateUrl ||
+          product.url ||
+          product.name;
+
+        if (!key || seen[key]) {
+          return;
+        }
+
+        seen[key] = true;
+
+        product.score =
+          calculateRakutenProductScore_(product);
+
+        allProducts.push(product);
+      });
+
+    } catch (error) {
+
+      console.log(
+        '楽天検索スキップ: ' +
+        keyword +
+        ' / ' +
+        error.message
+      );
+
+    }
+  });
+
+  allProducts.sort(function(a, b) {
+    return b.score - a.score;
+  });
+
+  return allProducts.slice(0, 10);
+}
+
+
+/**
+ * 商品スコア
+ */
+function calculateRakutenProductScore_(product) {
+
+  const reviewAverage =
+    Number(product.reviewAverage) || 0;
+
+  const reviewCount =
+    Number(product.reviewCount) || 0;
+
+  let score = 0;
+
+  score += reviewAverage * 20;
+
+  score += Math.min(
+    Math.log10(reviewCount + 1) * 10,
+    50
+  );
+
+  if (product.affiliateUrl) {
+    score += 20;
+  }
+
+  if (product.image) {
+    score += 5;
+  }
+
+  return score;
+}
+
+
+/**
+ * ブログ掲載用HTML生成
+ */
+function createRakutenAffiliateHtml(product) {
+
+  if (!product) {
+    throw new Error('商品情報がありません。');
+  }
+
+  const affiliateUrl =
+    product.affiliateUrl || product.url;
+
+  if (!affiliateUrl) {
+    throw new Error(
+      'アフィリエイトURLを取得できませんでした。'
+    );
+  }
+
+  const name =
+    escapeHtml_(product.name || '楽天市場の商品');
+
+  const image =
+    product.image
+      ? '<img src="' +
+        escapeHtml_(product.image) +
+        '" alt="' +
+        name +
+        '" loading="lazy">'
+      : '';
+
+  const price =
+    Number(product.price) > 0
+      ? '<p>価格：' +
+        Number(product.price).toLocaleString('ja-JP') +
+        '円</p>'
+      : '';
+
+  return (
+    '<div class="rakuten-affiliate-item">' +
+      image +
+      '<p><strong>' +
+        name +
+      '</strong></p>' +
+      price +
+      '<p>' +
+        '<a href="' +
+        escapeHtml_(affiliateUrl) +
+        '" target="_blank" rel="nofollow sponsored">' +
+        '楽天市場で商品を見る' +
+        '</a>' +
+      '</p>' +
+    '</div>'
+  );
+}
+
+
+/**
+ * HTMLエスケープ
+ */
+function escapeHtml_(value) {
+
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+
+/**
+ * 楽天API接続テスト
+ */
+function testRakutenAffiliate() {
+
+  console.log('楽天APIテスト開始');
+
+  const products =
+    searchRakutenProducts('フライパン', 5);
+
+  console.log(
+    '取得件数: ' +
+    products.length
+  );
+
+  products.forEach(function(product, index) {
+
+    console.log(
+      '--- 商品 ' +
+      (index + 1) +
+      ' ---'
+    );
+
+    console.log(
+      '商品名: ' +
+      product.name
+    );
+
+    console.log(
+      '価格: ' +
+      product.price
+    );
+
+    console.log(
+      'ショップ: ' +
+      product.shop
+    );
+
+    console.log(
+      'レビュー: ' +
+      product.reviewAverage +
+      ' / ' +
+      product.reviewCount
+    );
+
+    console.log(
+      '商品URL: ' +
+      product.url
+    );
+
+    console.log(
+      'アフィリエイトURL: ' +
+      product.affiliateUrl
+    );
+  });
+
+  console.log('楽天APIテスト終了');
+
+  return products;
+}
