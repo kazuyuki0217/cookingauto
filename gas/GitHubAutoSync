@@ -64,3 +64,18 @@ function getGitHubAutoSyncStatus() {
     '時刻: ' + time + '\n' +
     '詳細: ' + log;
 }
+
+function setupGitHubAutoSyncTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function(trigger) {
+    if (trigger.getHandlerFunction() === 'runGitHubAutoSync') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+
+  ScriptApp.newTrigger('runGitHubAutoSync')
+    .timeBased()
+    .everyHours(1)
+    .create();
+
+  return 'GitHub自動同期トリガーを1時間ごとに設定しました。';
+}
