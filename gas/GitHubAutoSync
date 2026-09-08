@@ -3,213 +3,64 @@
  * GitHub 自動同期・安全実行
  *************************************************/
 
-/**
- * GitHub → GAS 自動同期
- *
- * 既存の
- * syncGitHubToGasAuto()
- * を安全に呼び出す。
- */
 function runGitHubAutoSync() {
+  const startedAt = new Date();
 
-  const startedAt =
-    new Date();
-
-  console.log(
-    '================================'
-  );
-
-  console.log(
-    'GitHub自動同期 開始'
-  );
-
-  console.log(
-    '開始時刻: ' +
-    startedAt
-  );
-
+  console.log('================================');
+  console.log('GitHub自動同期 開始');
+  console.log('開始時刻: ' + startedAt);
 
   try {
+    const result = runGitHubSmartSync();
 
-    /*
-     * GitHub → GAS
-     */
-    const result =
-      syncGitHubToGasAuto();
+    console.log('同期結果: ' + result);
 
+    saveSyncLog_('SUCCESS', result, startedAt, new Date());
 
-    console.log(
-      '同期結果: ' +
-      result
-    );
-
-
-    /*
-     * 成功記録
-     */
-    saveSyncLog_(
-      'SUCCESS',
-      result,
-      startedAt,
-      new Date()
-    );
-
-
-    console.log(
-      'GitHub自動同期 正常終了'
-    );
-
-    console.log(
-      '================================'
-    );
-
+    console.log('GitHub自動同期 正常終了');
+    console.log('================================');
 
     return result;
 
-
   } catch (error) {
+    const message = error && error.message ? error.message : String(error);
 
-    /*
-     * エラー記録
-     */
-    const message =
-      error &&
-      error.message
-        ? error.message
-        : String(error);
+    console.log('GitHub自動同期 エラー');
+    console.log(message);
 
+    saveSyncLog_('ERROR', message, startedAt, new Date());
 
-    console.log(
-      'GitHub自動同期 エラー'
-    );
-
-    console.log(
-      message
-    );
-
-
-    saveSyncLog_(
-      'ERROR',
-      message,
-      startedAt,
-      new Date()
-    );
-
-
-    /*
-     * 自動実行ではエラーを
-     * そのまま再throwしない。
-     *
-     * ログへ記録して終了する。
-     */
-    return (
-      'GitHub自動同期エラー: ' +
-      message
-    );
-
+    return 'GitHub自動同期エラー: ' + message;
   }
-
 }
 
-
-/**
- * 同期ログをScript Propertiesへ保存
- */
-function saveSyncLog_(
-  status,
-  message,
-  startedAt,
-  finishedAt
-) {
-
-  const props =
-    PropertiesService
-      .getScriptProperties();
-
+function saveSyncLog_(status, message, startedAt, finishedAt) {
+  const props = PropertiesService.getScriptProperties();
 
   const log = {
-
-    status:
-      status,
-
-    message:
-      message,
-
-    startedAt:
-      startedAt.toISOString(),
-
-    finishedAt:
-      finishedAt.toISOString()
-
+    status: status,
+    message: message,
+    startedAt: startedAt.toISOString(),
+    finishedAt: finishedAt.toISOString()
   };
 
-
-  props.setProperty(
-    'GITHUB_LAST_SYNC_LOG',
-    JSON.stringify(log)
-  );
-
-
-  props.setProperty(
-    'GITHUB_LAST_SYNC_STATUS',
-    status
-  );
-
-
-  props.setProperty(
-    'GITHUB_LAST_SYNC_TIME',
-    finishedAt.toISOString()
-  );
-
+  props.setProperty('GITHUB_LAST_SYNC_LOG', JSON.stringify(log));
+  props.setProperty('GITHUB_LAST_SYNC_STATUS', status);
+  props.setProperty('GITHUB_LAST_SYNC_TIME', finishedAt.toISOString());
 }
 
-
-/**
- * 最新同期結果を確認
- */
 function getGitHubAutoSyncStatus() {
+  const props = PropertiesService.getScriptProperties();
 
-  const props =
-    PropertiesService
-      .getScriptProperties();
-
-
-  const status =
-    props.getProperty(
-      'GITHUB_LAST_SYNC_STATUS'
-    );
-
-
-  const time =
-    props.getProperty(
-      'GITHUB_LAST_SYNC_TIME'
-    );
-
-
-  const log =
-    props.getProperty(
-      'GITHUB_LAST_SYNC_LOG'
-    );
-
+  const status = props.getProperty('GITHUB_LAST_SYNC_STATUS');
+  const time = props.getProperty('GITHUB_LAST_SYNC_TIME');
+  const log = props.getProperty('GITHUB_LAST_SYNC_LOG');
 
   if (!log) {
-
-    return (
-      '同期履歴はまだありません。'
-    );
-
+    return '同期履歴はまだありません。';
   }
 
-
-  return (
-    '状態: ' +
-    status +
-    '\n' +
-    '時刻: ' +
-    time +
-    '\n' +
-    '詳細: ' +
-    log
-  );
-
+  return '状態: ' + status + '\n' +
+    '時刻: ' + time + '\n' +
+    '詳細: ' + log;
 }
