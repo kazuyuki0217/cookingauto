@@ -20,1052 +20,208 @@
  * ・全体接続テスト
  *************************************************/
 
+function KAZU_RAKUTEN_APP_ID_() { return '5db6e350-5a71-4843-8d29-cf894bef88df'; }
+function KAZU_RAKUTEN_AFFILIATE_ID_() { return '56e8483c.b8c4995b.56e8483d.205a3086'; }
+function KAZU_RAKUTEN_API_() { return 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'; }
+function KAZU_PINTEREST_API_() { return 'https://api.pinterest.com/v5'; }
 
-/*************************************************
- * 楽天設定
- *************************************************/
-
-function KAZU_RAKUTEN_APP_ID_() {
-
-  return '5db6e350-5a71-4843-8d29-cf894bef88df';
-}
-
-
-function KAZU_RAKUTEN_AFFILIATE_ID_() {
-
-  return '56e8483c.b8c4995b.56e8483d.205a3086';
-}
-
-
-function KAZU_RAKUTEN_API_() {
-
-  return 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701';
-}
-
-
-/*************************************************
- * Pinterest設定
- *************************************************/
-
-function KAZU_PINTEREST_API_() {
-
-  return 'https://api.pinterest.com/v5';
-}
-
-
-/*************************************************
- * Script Properties
- *************************************************/
-
-function KAZU_PROP_(name) {
-
-  return PropertiesService
-    .getScriptProperties()
-    .getProperty(name);
-}
-
-
-/*************************************************
- * 楽天Access Key取得
- *************************************************/
+function KAZU_PROP_(name) { return PropertiesService.getScriptProperties().getProperty(name); }
 
 function KAZU_RAKUTEN_KEY_() {
-
-  var key =
-    KAZU_PROP_(
-      'RAKUTEN_ACCESS_KEY'
-    );
-
-  if (!key) {
-
-    throw new Error(
-      '楽天アクセスキーが未登録です。' +
-      '「セーブ楽天アクセスキー」を実行してください。'
-    );
-  }
-
+  var key = KAZU_PROP_('RAKUTEN_ACCESS_KEY');
+  if (!key) throw new Error('楽天アクセスキーが未登録です。「セーブ楽天アクセスキー」を実行してください。');
   return key;
 }
 
-
-/*************************************************
- * 楽天Access Key保存
- *************************************************/
-
 function セーブ楽天アクセスキー() {
-
-  var ui =
-    SpreadsheetApp.getUi();
-
-  var result =
-    ui.prompt(
-      '楽天アクセスキー',
-      '楽天ウェブサービスのアクセスキーを入力してください。',
-      ui.ButtonSet.OK_CANCEL
-    );
-
-  if (
-    result.getSelectedButton() !==
-    ui.Button.OK
-  ) {
-    return;
-  }
-
-  var key =
-    result.getResponseText().trim();
-
-  if (!key) {
-
-    throw new Error(
-      '楽天アクセスキーが空です。'
-    );
-  }
-
-  PropertiesService
-    .getScriptProperties()
-    .setProperty(
-      'RAKUTEN_ACCESS_KEY',
-      key
-    );
-
-  Logger.log(
-    '楽天アクセスキー保存完了'
-  );
+  var ui = SpreadsheetApp.getUi();
+  var result = ui.prompt('楽天アクセスキー','楽天ウェブサービスのアクセスキーを入力してください。',ui.ButtonSet.OK_CANCEL);
+  if (result.getSelectedButton() !== ui.Button.OK) return;
+  var key = result.getResponseText().trim();
+  if (!key) throw new Error('楽天アクセスキーが空です。');
+  PropertiesService.getScriptProperties().setProperty('RAKUTEN_ACCESS_KEY',key);
+  Logger.log('楽天アクセスキー保存完了');
 }
 
-
-/*************************************************
- * 楽天API検索
- *************************************************/
-
-function KAZU_RAKUTEN_SEARCH_(
-  keyword,
-  hits
-) {
-
-  keyword =
-    keyword || 'フライパン';
-
-  hits =
-    hits || 10;
-
-  var key =
-    KAZU_RAKUTEN_KEY_();
-
+function KAZU_RAKUTEN_SEARCH_(keyword,hits) {
+  keyword = keyword || 'フライパン';
+  hits = hits || 10;
+  var key = KAZU_RAKUTEN_KEY_();
   var params = [
-
-    'applicationId=' +
-      encodeURIComponent(
-        KAZU_RAKUTEN_APP_ID_()
-      ),
-
-    'accessKey=' +
-      encodeURIComponent(key),
-
-    'affiliateId=' +
-      encodeURIComponent(
-        KAZU_RAKUTEN_AFFILIATE_ID_()
-      ),
-
-    'keyword=' +
-      encodeURIComponent(keyword),
-
-    'hits=' +
-      encodeURIComponent(hits),
-
-    'page=1',
-
-    'format=json',
-
-    'formatVersion=2'
+    'applicationId=' + encodeURIComponent(KAZU_RAKUTEN_APP_ID_()),
+    'accessKey=' + encodeURIComponent(key),
+    'affiliateId=' + encodeURIComponent(KAZU_RAKUTEN_AFFILIATE_ID_()),
+    'keyword=' + encodeURIComponent(keyword),
+    'hits=' + encodeURIComponent(hits),
+    'page=1','format=json','formatVersion=2'
   ];
-
-  var url =
-    KAZU_RAKUTEN_API_() +
-    '?' +
-    params.join('&');
-
-  Logger.log(
-    '楽天API検索開始'
-  );
-
-  var response =
-    UrlFetchApp.fetch(
-      url,
-      {
-        method: 'get',
-        muteHttpExceptions: true,
-        followRedirects: true,
-
-        headers: {
-          'Accept':
-            'application/json'
-        }
-      }
-    );
-
-  var code =
-    response.getResponseCode();
-
-  var body =
-    response.getContentText();
-
-  Logger.log(
-    '楽天API HTTP: ' +
-    code
-  );
-
-  if (
-    code < 200 ||
-    code >= 300
-  ) {
-
-    throw new Error(
-      '楽天API HTTP ' +
-      code +
-      '\n' +
-      body
-    );
-  }
-
+  var url = KAZU_RAKUTEN_API_() + '?' + params.join('&');
+  Logger.log('楽天API検索開始');
+  var response = UrlFetchApp.fetch(url, {
+    method:'get', muteHttpExceptions:true, followRedirects:true,
+    headers:{
+      'Accept':'application/json',
+      'Origin':'https://script.google.com',
+      'Referer':'https://script.google.com/'
+    }
+  });
+  var code = response.getResponseCode();
+  var body = response.getContentText();
+  Logger.log('楽天API HTTP: ' + code);
+  if (code < 200 || code >= 300) throw new Error('楽天API HTTP ' + code + '\n' + body);
   var data;
-
-  try {
-
-    data =
-      JSON.parse(body);
-
-  } catch (e) {
-
-    throw new Error(
-      '楽天API JSON解析エラー\n' +
-      body
-    );
-  }
-
-  if (
-    !data.items ||
-    data.items.length === 0
-  ) {
-
-    throw new Error(
-      '楽天商品が見つかりません。'
-    );
-  }
-
+  try { data = JSON.parse(body); } catch (e) { throw new Error('楽天API JSON解析エラー\n' + body); }
+  if (!data.items || data.items.length === 0) throw new Error('楽天商品が見つかりません。');
   return data;
 }
 
-
-/*************************************************
- * 楽天商品検索
- *************************************************/
-
 function 楽天商品検索(keyword) {
-
-  var data =
-    KAZU_RAKUTEN_SEARCH_(
-      keyword,
-      10
-    );
-
-  return data.items.map(
-    function(item) {
-
-      return {
-
-        商品名:
-          item.itemName || '',
-
-        価格:
-          item.itemPrice || '',
-
-        商品URL:
-          item.itemUrl || '',
-
-        アフィリエイトURL:
-          item.affiliateUrl || '',
-
-        ショップ名:
-          item.shopName || '',
-
-        商品画像:
-          item.mediumImageUrls &&
-          item.mediumImageUrls.length
-            ? item.mediumImageUrls[0].imageUrl
-            : '',
-
-        レビュー件数:
-          item.reviewCount || 0,
-
-        レビュー平均:
-          item.reviewAverage || 0
-      };
-    }
-  );
+  var data = KAZU_RAKUTEN_SEARCH_(keyword,10);
+  return data.items.map(function(item){ return {
+    商品名:item.itemName || '', 価格:item.itemPrice || '', 商品URL:item.itemUrl || '',
+    アフィリエイトURL:item.affiliateUrl || '', ショップ名:item.shopName || '',
+    商品画像:item.mediumImageUrls && item.mediumImageUrls.length ? item.mediumImageUrls[0].imageUrl : '',
+    レビュー件数:item.reviewCount || 0, レビュー平均:item.reviewAverage || 0
+  }; });
 }
 
-
-/*************************************************
- * 楽天テスト
- *************************************************/
-
 function テスト楽天() {
-
-  var results =
-    楽天商品検索(
-      'フライパン'
-    );
-
-  Logger.log(
-    '楽天商品検索成功：' +
-    results.length +
-    '件'
-  );
-
-  if (
-    results.length > 0
-  ) {
-
-    Logger.log(
-      '商品名：' +
-      results[0].商品名
-    );
-
-    Logger.log(
-      '価格：' +
-      results[0].価格
-    );
-
-    Logger.log(
-      'アフィリエイトURL：' +
-      results[0].アフィリエイトURL
-    );
+  var results = 楽天商品検索('フライパン');
+  Logger.log('楽天商品検索成功：' + results.length + '件');
+  if (results.length > 0) {
+    Logger.log('商品名：' + results[0].商品名);
+    Logger.log('価格：' + results[0].価格);
+    Logger.log('アフィリエイトURL：' + results[0].アフィリエイトURL);
   }
-
   return results;
 }
 
-
-/*************************************************
- * 楽天おすすめ商品
- *************************************************/
-
 function 楽天おすすめ商品(keyword) {
-
-  var results =
-    楽天商品検索(
-      keyword
-    );
-
-  if (
-    !results ||
-    results.length === 0
-  ) {
-
-    throw new Error(
-      '楽天商品が見つかりません。'
-    );
-  }
-
+  var results = 楽天商品検索(keyword);
+  if (!results || results.length === 0) throw new Error('楽天商品が見つかりません。');
   return results[0];
 }
 
-
-/*************************************************
- * Pinterest Token取得
- *************************************************/
-
 function KAZU_PIN_TOKEN_() {
-
-  var token =
-    KAZU_PROP_(
-      'PINTEREST_ACCESS_TOKEN'
-    );
-
-  if (!token) {
-
-    throw new Error(
-      'Pinterestアクセストークンが未登録です。'
-    );
-  }
-
+  var token = KAZU_PROP_('PINTEREST_ACCESS_TOKEN');
+  if (!token) throw new Error('Pinterestアクセストークンが未登録です。');
   return token;
 }
 
-
-/*************************************************
- * Pinterest Token保存
- *************************************************/
-
 function Pinterestアクセストークン保存() {
-
-  var ui =
-    SpreadsheetApp.getUi();
-
-  var result =
-    ui.prompt(
-      'Pinterestアクセストークン',
-      'Pinterest APIのアクセストークンを入力してください。',
-      ui.ButtonSet.OK_CANCEL
-    );
-
-  if (
-    result.getSelectedButton() !==
-    ui.Button.OK
-  ) {
-    return;
-  }
-
-  var token =
-    result.getResponseText().trim();
-
-  if (!token) {
-
-    throw new Error(
-      'Pinterestアクセストークンが空です。'
-    );
-  }
-
-  PropertiesService
-    .getScriptProperties()
-    .setProperty(
-      'PINTEREST_ACCESS_TOKEN',
-      token
-    );
-
-  Logger.log(
-    'Pinterestアクセストークン保存完了'
-  );
+  var ui = SpreadsheetApp.getUi();
+  var result = ui.prompt('Pinterestアクセストークン','Pinterest APIのアクセストークンを入力してください。',ui.ButtonSet.OK_CANCEL);
+  if (result.getSelectedButton() !== ui.Button.OK) return;
+  var token = result.getResponseText().trim();
+  if (!token) throw new Error('Pinterestアクセストークンが空です。');
+  PropertiesService.getScriptProperties().setProperty('PINTEREST_ACCESS_TOKEN',token);
+  Logger.log('Pinterestアクセストークン保存完了');
 }
 
-
-/*************************************************
- * Pinterest GET
- *************************************************/
-
 function KAZU_PIN_GET_(endpoint) {
-
-  var response =
-    UrlFetchApp.fetch(
-      KAZU_PINTEREST_API_() +
-      endpoint,
-      {
-        method: 'get',
-        muteHttpExceptions: true,
-
-        headers: {
-
-          'Authorization':
-            'Bearer ' +
-            KAZU_PIN_TOKEN_(),
-
-          'Content-Type':
-            'application/json'
-        }
-      }
-    );
-
-  var code =
-    response.getResponseCode();
-
-  var body =
-    response.getContentText();
-
-  Logger.log(
-    'Pinterest GET HTTP: ' +
-    code
-  );
-
-  if (
-    code < 200 ||
-    code >= 300
-  ) {
-
-    throw new Error(
-      'Pinterest GET HTTP ' +
-      code +
-      '\n' +
-      body
-    );
-  }
-
+  var response = UrlFetchApp.fetch(KAZU_PINTEREST_API_()+endpoint,{method:'get',muteHttpExceptions:true,headers:{'Authorization':'Bearer '+KAZU_PIN_TOKEN_(),'Content-Type':'application/json'}});
+  var code=response.getResponseCode(), body=response.getContentText();
+  Logger.log('Pinterest GET HTTP: '+code);
+  if(code<200||code>=300) throw new Error('Pinterest GET HTTP '+code+'\n'+body);
   return JSON.parse(body);
 }
 
-
-/*************************************************
- * Pinterest POST
- *************************************************/
-
-function KAZU_PIN_POST_(
-  endpoint,
-  payload
-) {
-
-  var response =
-    UrlFetchApp.fetch(
-      KAZU_PINTEREST_API_() +
-      endpoint,
-      {
-        method: 'post',
-        muteHttpExceptions: true,
-
-        contentType:
-          'application/json',
-
-        headers: {
-
-          'Authorization':
-            'Bearer ' +
-            KAZU_PIN_TOKEN_(),
-
-          'Content-Type':
-            'application/json'
-        },
-
-        payload:
-          JSON.stringify(payload)
-      }
-    );
-
-  var code =
-    response.getResponseCode();
-
-  var body =
-    response.getContentText();
-
-  Logger.log(
-    'Pinterest POST HTTP: ' +
-    code
-  );
-
-  if (
-    code < 200 ||
-    code >= 300
-  ) {
-
-    throw new Error(
-      'Pinterest POST HTTP ' +
-      code +
-      '\n' +
-      body
-    );
-  }
-
-  return body
-    ? JSON.parse(body)
-    : {};
+function KAZU_PIN_POST_(endpoint,payload) {
+  var response=UrlFetchApp.fetch(KAZU_PINTEREST_API_()+endpoint,{method:'post',muteHttpExceptions:true,contentType:'application/json',headers:{'Authorization':'Bearer '+KAZU_PIN_TOKEN_(),'Content-Type':'application/json'},payload:JSON.stringify(payload)});
+  var code=response.getResponseCode(), body=response.getContentText();
+  Logger.log('Pinterest POST HTTP: '+code);
+  if(code<200||code>=300) throw new Error('Pinterest POST HTTP '+code+'\n'+body);
+  return body ? JSON.parse(body) : {};
 }
 
-
-/*************************************************
- * Pinterestボード一覧
- *************************************************/
-
 function Pinterestボード一覧() {
-
-  var data =
-    KAZU_PIN_GET_(
-      '/boards?page_size=100'
-    );
-
-  if (!data.items) {
-
-    throw new Error(
-      'Pinterestボードを取得できませんでした。'
-    );
-  }
-
-  var boards =
-    data.items.map(
-      function(board) {
-
-        return {
-
-          id:
-            board.id || '',
-
-          name:
-            board.name || '',
-
-          description:
-            board.description || '',
-
-          privacy:
-            board.privacy || ''
-        };
-      }
-    );
-
-  boards.forEach(
-    function(board) {
-
-      Logger.log(
-        'BOARD ID: ' +
-        board.id +
-        ' / ' +
-        board.name
-      );
-    }
-  );
-
+  var data=KAZU_PIN_GET_('/boards?page_size=100');
+  if(!data.items) throw new Error('Pinterestボードを取得できませんでした。');
+  var boards=data.items.map(function(board){return {id:board.id||'',name:board.name||'',description:board.description||'',privacy:board.privacy||''};});
+  boards.forEach(function(board){Logger.log('BOARD ID: '+board.id+' / '+board.name);});
   return boards;
 }
 
-
-/*************************************************
- * PinterestボードID保存
- *************************************************/
-
 function PinterestボードID保存() {
-
-  var boards =
-    Pinterestボード一覧();
-
-  if (
-    !boards ||
-    boards.length === 0
-  ) {
-
-    throw new Error(
-      'Pinterestボードがありません。'
-    );
-  }
-
-  var text =
-    'Pinterestボード一覧\n\n';
-
-  boards.forEach(
-    function(board, index) {
-
-      text +=
-        (index + 1) +
-        '. ' +
-        board.name +
-        '\nID: ' +
-        board.id +
-        '\n\n';
-    }
-  );
-
-  var ui =
-    SpreadsheetApp.getUi();
-
-  var result =
-    ui.prompt(
-      text +
-      '\n使用するボードIDを入力してください。',
-      '',
-      ui.ButtonSet.OK_CANCEL
-    );
-
-  if (
-    result.getSelectedButton() !==
-    ui.Button.OK
-  ) {
-    return;
-  }
-
-  var boardId =
-    result.getResponseText().trim();
-
-  if (!boardId) {
-
-    throw new Error(
-      'ボードIDが空です。'
-    );
-  }
-
-  PropertiesService
-    .getScriptProperties()
-    .setProperty(
-      'PINTEREST_BOARD_ID',
-      boardId
-    );
-
-  Logger.log(
-    'PinterestボードID保存完了'
-  );
+  var boards=Pinterestボード一覧();
+  if(!boards||boards.length===0) throw new Error('Pinterestボードがありません。');
+  var text='Pinterestボード一覧\n\n';
+  boards.forEach(function(board,index){text+=(index+1)+'. '+board.name+'\nID: '+board.id+'\n\n';});
+  var ui=SpreadsheetApp.getUi();
+  var result=ui.prompt(text+'\n使用するボードIDを入力してください。','',ui.ButtonSet.OK_CANCEL);
+  if(result.getSelectedButton()!==ui.Button.OK) return;
+  var boardId=result.getResponseText().trim();
+  if(!boardId) throw new Error('ボードIDが空です。');
+  PropertiesService.getScriptProperties().setProperty('PINTEREST_BOARD_ID',boardId);
+  Logger.log('PinterestボードID保存完了');
 }
 
-
-/*************************************************
- * PinterestボードID取得
- *************************************************/
-
 function KAZU_PIN_BOARD_() {
-
-  var boardId =
-    KAZU_PROP_(
-      'PINTEREST_BOARD_ID'
-    );
-
-  if (!boardId) {
-
-    throw new Error(
-      'PinterestボードIDが未登録です。'
-    );
-  }
-
+  var boardId=KAZU_PROP_('PINTEREST_BOARD_ID');
+  if(!boardId) throw new Error('PinterestボードIDが未登録です。');
   return boardId;
 }
 
-
-/*************************************************
- * Pinterest接続テスト
- *************************************************/
-
 function Pinterest接続テスト() {
-
-  var data =
-    KAZU_PIN_GET_(
-      '/boards?page_size=10'
-    );
-
-  Logger.log(
-    'Pinterest API接続成功'
-  );
-
+  var data=KAZU_PIN_GET_('/boards?page_size=10');
+  Logger.log('Pinterest API接続成功');
   return data;
 }
 
-
-/*************************************************
- * Pinterest Pin作成
- *************************************************/
-
-function PinterestPin作成(
-  imageUrl,
-  title,
-  description,
-  link
-) {
-
-  if (!imageUrl) {
-
-    throw new Error(
-      '画像URLがありません。'
-    );
-  }
-
-  if (!title) {
-
-    throw new Error(
-      'Pinterestタイトルがありません。'
-    );
-  }
-
-  if (!link) {
-
-    throw new Error(
-      'ブログURLがありません。'
-    );
-  }
-
-  var payload = {
-
-    board_id:
-      KAZU_PIN_BOARD_(),
-
-    title:
-      title,
-
-    description:
-      description || '',
-
-    link:
-      link,
-
-    media_source: {
-
-      source_type:
-        'image_url',
-
-      url:
-        imageUrl,
-
-      is_standard:
-        true
-    }
-  };
-
-  var result =
-    KAZU_PIN_POST_(
-      '/pins',
-      payload
-    );
-
-  Logger.log(
-    'Pinterest Pin作成成功'
-  );
-
+function PinterestPin作成(imageUrl,title,description,link) {
+  if(!imageUrl) throw new Error('画像URLがありません。');
+  if(!title) throw new Error('Pinterestタイトルがありません。');
+  if(!link) throw new Error('ブログURLがありません。');
+  var payload={board_id:KAZU_PIN_BOARD_(),title:title,description:description||'',link:link,media_source:{source_type:'image_url',url:imageUrl,is_standard:true}};
+  var result=KAZU_PIN_POST_('/pins',payload);
+  Logger.log('Pinterest Pin作成成功');
   return result;
 }
 
-
-/*************************************************
- * Pinterestテスト投稿
- *************************************************/
-
 function Pinterestテスト投稿() {
-
-  var imageUrl =
-    'ここに公開画像URL';
-
-  var title =
-    '仕事終わり15分で作る簡単料理';
-
-  var description =
-    '一人暮らし・単身赴任でも作りやすい簡単料理。' +
-    '実際に作った料理と材料、作り方をブログで紹介しています。';
-
-  var link =
-    'https://tansinfuninkazu.hatenablog.com/';
-
-  return PinterestPin作成(
-    imageUrl,
-    title,
-    description,
-    link
-  );
+  return PinterestPin作成('ここに公開画像URL','仕事終わり15分で作る簡単料理','一人暮らし・単身赴任でも作りやすい簡単料理。実際に作った料理と材料、作り方をブログで紹介しています。','https://tansinfuninkazu.hatenablog.com/');
 }
 
-
-/*************************************************
- * 1料理 → Pinterest 3パターン
- *************************************************/
-
-function Pinterest3パターン投稿(
-  imageUrl,
-  blogUrl,
-  dishName
-) {
-
-  var patterns = [
-
-    {
-      title:
-        dishName +
-        '｜仕事終わり15分で作れる簡単ごはん',
-
-      description:
-        '仕事終わりでも無理なく作れる' +
-        dishName +
-        '。一人暮らし・単身赴任の夕飯にもおすすめ。'
-    },
-
-    {
-      title:
-        dishName +
-        '｜疲れて帰った日の簡単晩ごはん',
-
-      description:
-        '疲れて帰った日に料理するのは大変。' +
-        dishName +
-        'なら短時間で作れて、ご飯もしっかり食べられます。'
-    },
-
-    {
-      title:
-        dishName +
-        '｜節約しながら作れる一人暮らしごはん',
-
-      description:
-        '節約しながら、ちゃんと美味しい。' +
-        dishName +
-        'の材料と作り方をブログで紹介しています。'
-    }
+function Pinterest3パターン投稿(imageUrl,blogUrl,dishName) {
+  var patterns=[
+    {title:dishName+'｜仕事終わり15分で作れる簡単ごはん',description:'仕事終わりでも無理なく作れる'+dishName+'。一人暮らし・単身赴任の夕飯にもおすすめ。'},
+    {title:dishName+'｜疲れて帰った日の簡単晩ごはん',description:'疲れて帰った日に料理するのは大変。'+dishName+'なら短時間で作れて、ご飯もしっかり食べられます。'},
+    {title:dishName+'｜節約しながら作れる一人暮らしごはん',description:'節約しながら、ちゃんと美味しい。'+dishName+'の材料と作り方をブログで紹介しています。'}
   ];
-
-  var results = [];
-
-  patterns.forEach(
-    function(pattern) {
-
-      results.push(
-        PinterestPin作成(
-          imageUrl,
-          pattern.title,
-          pattern.description,
-          blogUrl
-        )
-      );
-
-      Utilities.sleep(1500);
-    }
-  );
-
-  Logger.log(
-    'Pinterest 3パターン投稿完了'
-  );
-
+  var results=[];
+  patterns.forEach(function(pattern){results.push(PinterestPin作成(imageUrl,pattern.title,pattern.description,blogUrl));Utilities.sleep(1500);});
+  Logger.log('Pinterest 3パターン投稿完了');
   return results;
 }
 
-
-/*************************************************
- * 設定状況確認
- *************************************************/
-
 function 設定状況確認() {
-
-  var props =
-    PropertiesService
-      .getScriptProperties()
-      .getProperties();
-
-  var result = {
-
-    楽天ApplicationID:
-      KAZU_RAKUTEN_APP_ID_(),
-
-    楽天AffiliateID:
-      KAZU_RAKUTEN_AFFILIATE_ID_(),
-
-    楽天アクセスキー:
-      props.RAKUTEN_ACCESS_KEY
-        ? '登録済み'
-        : '未登録',
-
-    Pinterestアクセストークン:
-      props.PINTEREST_ACCESS_TOKEN
-        ? '登録済み'
-        : '未登録',
-
-    PinterestボードID:
-      props.PINTEREST_BOARD_ID
-        ? props.PINTEREST_BOARD_ID
-        : '未登録'
-  };
-
-  Logger.log(
-    JSON.stringify(
-      result,
-      null,
-      2
-    )
-  );
-
+  var props=PropertiesService.getScriptProperties().getProperties();
+  var result={楽天ApplicationID:KAZU_RAKUTEN_APP_ID_(),楽天AffiliateID:KAZU_RAKUTEN_AFFILIATE_ID_(),楽天アクセスキー:props.RAKUTEN_ACCESS_KEY?'登録済み':'未登録',Pinterestアクセストークン:props.PINTEREST_ACCESS_TOKEN?'登録済み':'未登録',PinterestボードID:props.PINTEREST_BOARD_ID?props.PINTEREST_BOARD_ID:'未登録'};
+  Logger.log(JSON.stringify(result,null,2));
   return result;
 }
-
-
-/*************************************************
- * GASプロジェクトコード取得
- *************************************************/
 
 function getMyProjectSource() {
-
-  var scriptId =
-    ScriptApp.getScriptId();
-
-  var token =
-    ScriptApp.getOAuthToken();
-
-  var url =
-    'https://script.googleapis.com/v1/projects/' +
-    encodeURIComponent(scriptId) +
-    '/content';
-
-  var response =
-    UrlFetchApp.fetch(
-      url,
-      {
-        method: 'get',
-
-        headers: {
-          'Authorization':
-            'Bearer ' + token
-        },
-
-        muteHttpExceptions: true
-      }
-    );
-
-  var result =
-    response.getContentText();
-
-  DriveApp.createFile(
-    '料理自動化_現在コード取得.json',
-    result,
-    MimeType.PLAIN_TEXT
-  );
-
+  var scriptId=ScriptApp.getScriptId(), token=ScriptApp.getOAuthToken();
+  var url='https://script.googleapis.com/v1/projects/'+encodeURIComponent(scriptId)+'/content';
+  var response=UrlFetchApp.fetch(url,{method:'get',headers:{'Authorization':'Bearer '+token},muteHttpExceptions:true});
+  var result=response.getContentText();
+  DriveApp.createFile('料理自動化_現在コード取得.json',result,MimeType.PLAIN_TEXT);
   Logger.log(result);
-
   return result;
 }
 
+function 自分のコードを取得(){return getMyProjectSource();}
+function KAZU_保存確認(){Logger.log('Code.gs 完成版 保存OK');return 'OK';}
 
-/*************************************************
- * 自分のコードを取得
- *************************************************/
-
-function 自分のコードを取得() {
-
-  return getMyProjectSource();
-}
-
-
-/*************************************************
- * Code.gs保存確認
- *************************************************/
-
-function KAZU_保存確認() {
-
-  Logger.log(
-    'Code.gs 完成版 保存OK'
-  );
-
-  return 'OK';
-}
-
-
-/*************************************************
- * 全体接続テスト
- *************************************************/
-
-function 全体接続テスト() {
-
-  Logger.log(
-    '========== 全体テスト開始 =========='
-  );
-
-  Logger.log(
-    '【1】楽天API'
-  );
-
-  var rakuten =
-    テスト楽天();
-
-  Logger.log(
-    '楽天OK：' +
-    rakuten.length +
-    '件'
-  );
-
-  Logger.log(
-    '【2】Pinterest API'
-  );
-
-  var pinterest =
-    Pinterest接続テスト();
-
-  Logger.log(
-    'Pinterest OK'
-  );
-
-  Logger.log(
-    '========== 全体テスト完了 =========='
-  );
-
-  return {
-
-    rakuten:
-      rakuten,
-
-    pinterest:
-      pinterest
-  };
+function 全体接続テスト(){
+  Logger.log('========== 全体テスト開始 ==========');
+  Logger.log('【1】楽天API');
+  var rakuten=テスト楽天();
+  Logger.log('楽天OK：'+rakuten.length+'件');
+  Logger.log('【2】Pinterest API');
+  var pinterest=Pinterest接続テスト();
+  Logger.log('Pinterest OK');
+  Logger.log('========== 全体テスト完了 ==========');
+  return {rakuten:rakuten,pinterest:pinterest};
 }
