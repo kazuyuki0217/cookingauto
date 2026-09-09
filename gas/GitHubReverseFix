@@ -1,16 +1,8 @@
 /*************************************************
  * 料理アフィリエイト自動化
  * GitHub → GAS 自動逆同期 修正版・完成版
- *
- * GitHub上の実際のGASファイル名を自動判定し、
- * 現在のGASプロジェクトを保持したまま
- * 対象ファイルだけGitHub版へ置き換える。
  *************************************************/
 
-
-/**
- * GitHub → GAS 自動同期
- */
 function syncGitHubToGasAuto() {
   const c = ghConfig_();
   console.log('GitHub → GAS 自動同期開始');
@@ -35,9 +27,7 @@ function syncGitHubToGasAuto() {
       if (gasMatch) targetGasName = gasMatch.name;
     }
   }
-  if (!target || !targetGasName) {
-    throw new Error('GitHub側の対象GASファイルを特定できません。\nGitHub: ' + githubFiles.map(function(file){return file.name;}).join(', ') + '\nGAS: ' + gasServerFiles.map(function(file){return file.name;}).join(', '));
-  }
+  if (!target || !targetGasName) throw new Error('GitHub側の対象GASファイルを特定できません。');
   console.log('同期対象: ' + target.name + ' → GAS ' + targetGasName);
   const githubSource = getGitHubFile_(c, target.path);
   const files = project.files.map(function(file){return {name:file.name,type:file.type,source:typeof file.source === 'string' ? file.source : ''};});
@@ -52,44 +42,32 @@ function syncGitHubToGasAuto() {
   return 'GitHub → GAS 自動同期完了: ' + target.path + ' → GAS ' + targetGasName;
 }
 
-
 /*************************************************
  * GitHub appsscript → GAS appsscript.json 反映
- *
- * GitHub側で追加したOAuthスコープを、
- * GASプロジェクトのマニフェストへ反映する。
  *************************************************/
 function GASマニフェスト権限反映() {
   const c = ghConfig_();
   console.log('GASマニフェスト権限反映開始');
 
   const scriptId = ScriptApp.getScriptId();
-  const contentUrl = 'https://script.googleapis.com/v1/projects/' + encodeURIComponent(scriptId) + '/content?includeProjectManifest=true';
+  const contentUrl = 'https://script.googleapis.com/v1/projects/' + encodeURIComponent(scriptId) + '/content';
   const contentRes = UrlFetchApp.fetch(contentUrl, {
     method: 'get',
     muteHttpExceptions: true,
     headers: {Authorization: 'Bearer ' + ScriptApp.getOAuthToken()}
   });
   const contentCode = contentRes.getResponseCode();
-  if (contentCode !== 200) {
-    throw new Error('GASプロジェクト取得失敗 HTTP ' + contentCode + '\n' + contentRes.getContentText());
-  }
+  if (contentCode !== 200) throw new Error('GASプロジェクト取得失敗 HTTP ' + contentCode + '\n' + contentRes.getContentText());
+
   const project = JSON.parse(contentRes.getContentText());
-  if (!project.files || !project.files.length) {
-    throw new Error('現在のGASプロジェクトを取得できません。');
-  }
+  if (!project.files || !project.files.length) throw new Error('現在のGASプロジェクトを取得できません。');
 
   const githubManifest = getGitHubFile_(c, 'gas/appsscript');
-  if (!githubManifest) {
-    throw new Error('GitHubのgas/appsscriptを取得できません。');
-  }
+  if (!githubManifest) throw new Error('GitHubのgas/appsscriptを取得できません。');
 
   let parsed;
-  try {
-    parsed = JSON.parse(githubManifest);
-  } catch (e) {
-    throw new Error('GitHubのappsscriptが正しいJSONではありません。\n' + e.message);
-  }
+  try { parsed = JSON.parse(githubManifest); }
+  catch (e) { throw new Error('GitHubのappsscriptが正しいJSONではありません。\n' + e.message); }
 
   const scopes = Array.isArray(parsed.oauthScopes) ? parsed.oauthScopes : [];
   if (scopes.indexOf('https://www.googleapis.com/auth/script.deployments.readonly') === -1) {
@@ -98,11 +76,7 @@ function GASマニフェスト権限反映() {
 
   let manifestFound = false;
   const files = project.files.map(function(file) {
-    const copy = {
-      name: file.name,
-      type: file.type,
-      source: typeof file.source === 'string' ? file.source : ''
-    };
+    const copy = {name:file.name,type:file.type,source:typeof file.source === 'string' ? file.source : ''};
     if (copy.name === 'appsscript.json') {
       copy.type = 'JSON';
       copy.source = JSON.stringify(parsed, null, 2);
@@ -112,21 +86,16 @@ function GASマニフェスト権限反映() {
   });
 
   if (!manifestFound) {
-    throw new Error('GAS APIからappsscript.jsonが取得できません。includeProjectManifest=trueでも見つからないため、GASエディタ側のマニフェスト表示設定を確認してください。');
+    throw new Error('GAS APIからappsscript.jsonが取得できません。GASエディタの「プロジェクトの設定」でマニフェストファイルを表示する設定を確認してください。');
   }
 
   updateGasProjectContent_(files);
-
   console.log('appsscript.jsonをGitHub版へ反映しました。');
   console.log('追加対象: https://www.googleapis.com/auth/script.deployments.readonly');
   console.log('次回のGAS実行時に権限承認が必要になる場合があります。');
   return 'GASマニフェスト反映完了';
 }
 
-
-/*************************************************
- * GASプロジェクト全体更新共通処理
- *************************************************/
 function updateGasProjectContent_(files) {
   const scriptId = ScriptApp.getScriptId();
   const url = 'https://script.googleapis.com/v1/projects/' + encodeURIComponent(scriptId) + '/content';
@@ -141,18 +110,10 @@ function updateGasProjectContent_(files) {
   if (code !== 200) throw new Error('GAS更新失敗 HTTP ' + code + '\n' + res.getContentText());
 }
 
-
-/*************************************************
- * GASデプロイ一覧＋Pinterest旧URL照合
- *************************************************/
 function GASデプロイ一覧確認() {
   const scriptId = ScriptApp.getScriptId();
   const url = 'https://script.googleapis.com/v1/projects/' + encodeURIComponent(scriptId) + '/deployments?pageSize=100';
-  const res = UrlFetchApp.fetch(url, {
-    method: 'get',
-    muteHttpExceptions: true,
-    headers: {Authorization: 'Bearer ' + ScriptApp.getOAuthToken()}
-  });
+  const res = UrlFetchApp.fetch(url, {method:'get',muteHttpExceptions:true,headers:{Authorization:'Bearer ' + ScriptApp.getOAuthToken()}});
   const code = res.getResponseCode();
   const body = res.getContentText();
   if (code !== 200) throw new Error('GASデプロイ一覧取得失敗 HTTP ' + code + '\n' + body);
@@ -177,10 +138,6 @@ function GASデプロイ一覧確認() {
   return rows;
 }
 
-
-/*************************************************
- * GitHubのgasフォルダ一覧取得
- *************************************************/
 function listGitHubGasFiles_(c) {
   const url = GH_API + '/repos/' + encodeURIComponent(c.owner) + '/' + encodeURIComponent(c.repo) + '/contents/gas?ref=' + encodeURIComponent(c.branch);
   const res = UrlFetchApp.fetch(url, {method:'get',headers:{Authorization:'Bearer '+c.token,Accept:'application/vnd.github+json'},muteHttpExceptions:true});
@@ -191,18 +148,9 @@ function listGitHubGasFiles_(c) {
   return data.filter(function(file){return file.type === 'file';});
 }
 
-
-/*************************************************
- * GitHub設定取得
- *************************************************/
 function getGitHubReverseConfig_() {
   const props = PropertiesService.getScriptProperties();
-  const config = {
-    owner: props.getProperty('GITHUB_OWNER'),
-    repo: props.getProperty('GITHUB_REPO'),
-    branch: props.getProperty('GITHUB_BRANCH') || 'main',
-    token: props.getProperty('GITHUB_TOKEN')
-  };
+  const config = {owner:props.getProperty('GITHUB_OWNER'),repo:props.getProperty('GITHUB_REPO'),branch:props.getProperty('GITHUB_BRANCH') || 'main',token:props.getProperty('GITHUB_TOKEN')};
   if (!config.owner || !config.repo || !config.token) throw new Error('GitHub設定が不足しています。\nGITHUB_OWNER / GITHUB_REPO / GITHUB_TOKEN を確認してください。');
   return config;
 }
