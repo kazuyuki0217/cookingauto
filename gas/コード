@@ -18,6 +18,7 @@
  * ・設定状況確認
  * ・GASコード取得
  * ・全体接続テスト
+ * ・楽天ブラウザAPI橋渡し
  *************************************************/
 
 function KAZU_RAKUTEN_APP_ID_() { return '5db6e350-5a71-4843-8d29-cf894bef88df'; }
@@ -39,7 +40,6 @@ function セーブ楽天アクセスキー() {
   PropertiesService.getScriptProperties().setProperty('RAKUTEN_ACCESS_KEY',key);
   Logger.log('楽天アクセスキー保存完了');
 }
-
 function KAZU_RAKUTEN_SEARCH_(keyword,hits) {
   keyword = keyword || 'フライパン';
   hits = hits || 10;
@@ -112,21 +112,14 @@ function Pinterestアクセストークン保存() {
   Logger.log('Pinterestアクセストークン保存完了');
 }
 function KAZU_PIN_GET_(endpoint) {
-  var response = UrlFetchApp.fetch(KAZU_PINTEREST_API_() + endpoint, {
-    method:'get', muteHttpExceptions:true,
-    headers:{'Authorization':'Bearer ' + KAZU_PIN_TOKEN_(),'Content-Type':'application/json'}
-  });
+  var response = UrlFetchApp.fetch(KAZU_PINTEREST_API_() + endpoint, { method:'get', muteHttpExceptions:true, headers:{'Authorization':'Bearer ' + KAZU_PIN_TOKEN_(),'Content-Type':'application/json'} });
   var code=response.getResponseCode(), body=response.getContentText();
   Logger.log('Pinterest GET HTTP: ' + code);
   if (code<200 || code>=300) throw new Error('Pinterest GET HTTP ' + code + '\n' + body);
   return JSON.parse(body);
 }
 function KAZU_PIN_POST_(endpoint,payload) {
-  var response = UrlFetchApp.fetch(KAZU_PINTEREST_API_() + endpoint, {
-    method:'post', muteHttpExceptions:true, contentType:'application/json',
-    headers:{'Authorization':'Bearer ' + KAZU_PIN_TOKEN_(),'Content-Type':'application/json'},
-    payload:JSON.stringify(payload)
-  });
+  var response = UrlFetchApp.fetch(KAZU_PINTEREST_API_() + endpoint, { method:'post', muteHttpExceptions:true, contentType:'application/json', headers:{'Authorization':'Bearer ' + KAZU_PIN_TOKEN_(),'Content-Type':'application/json'}, payload:JSON.stringify(payload) });
   var code=response.getResponseCode(), body=response.getContentText();
   Logger.log('Pinterest POST HTTP: ' + code);
   if (code<200 || code>=300) throw new Error('Pinterest POST HTTP ' + code + '\n' + body);
@@ -207,4 +200,32 @@ function 全体接続テスト(){
   Logger.log('【2】Pinterest API'); var pinterest=Pinterest接続テスト(); Logger.log('Pinterest OK');
   Logger.log('========== 全体テスト完了 ==========');
   return {rakuten:rakuten,pinterest:pinterest};
+}
+
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('RakutenBrowserBridge')
+    .setTitle('楽天商品検索')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+function 楽天ブラウザ用アクセスキー取得() {
+  return KAZU_RAKUTEN_KEY_();
+}
+function 保存楽天ブラウザ検索結果(jsonText) {
+  if (!jsonText) throw new Error('楽天検索結果が空です。');
+  var data;
+  try { data = JSON.parse(jsonText); } catch (e) { throw new Error('楽天検索結果JSON解析エラー'); }
+  var items = data && data.Items ? data.Items : [];
+  if (!items.length) throw new Error('楽天商品が含まれていません。');
+  var normalized = items.map(function(item) {
+    var info = item.Item || item.item || {};
+    return {商品名:info.itemName||'',価格:info.itemPrice||0,商品URL:info.itemUrl||'',アフィリエイトURL:info.affiliateUrl||'',ショップ名:info.shopName||'',商品画像:info.mediumImageUrls&&info.mediumImageUrls.length?info.mediumImageUrls[0].imageUrl:'',レビュー件数:info.reviewCount||0,レビュー平均:info.reviewAverage||0};
+  });
+  PropertiesService.getScriptProperties().setProperty('RAKUTEN_BROWSER_RESULTS',JSON.stringify({updatedAt:new Date().toISOString(),items:normalized}));
+  Logger.log('楽天ブラウザ検索結果保存：'+normalized.length+'件');
+  return {success:true,count:normalized.length,items:normalized};
+}
+function 楽天ブラウザ検索結果取得() {
+  var text=PropertiesService.getScriptProperties().getProperty('RAKUTEN_BROWSER_RESULTS');
+  if(!text)return {success:false,count:0,items:[]};
+  try{return JSON.parse(text);}catch(e){return {success:false,count:0,items:[]};}
 }
