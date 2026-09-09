@@ -42,43 +42,26 @@ function syncGitHubToGasAuto() {
   return 'GitHub → GAS 自動同期完了: ' + target.path + ' → GAS ' + targetGasName;
 }
 
-/*************************************************
- * GitHub appsscript → GAS appsscript.json 反映
- *************************************************/
 function GASマニフェスト権限反映() {
   const c = ghConfig_();
   console.log('GASマニフェスト権限反映開始');
-
   const scriptId = ScriptApp.getScriptId();
   const contentUrl = 'https://script.googleapis.com/v1/projects/' + encodeURIComponent(scriptId) + '/content';
-  const contentRes = UrlFetchApp.fetch(contentUrl, {
-    method: 'get',
-    muteHttpExceptions: true,
-    headers: {Authorization: 'Bearer ' + ScriptApp.getOAuthToken()}
-  });
+  const contentRes = UrlFetchApp.fetch(contentUrl, {method:'get',muteHttpExceptions:true,headers:{Authorization:'Bearer ' + ScriptApp.getOAuthToken()}});
   const contentCode = contentRes.getResponseCode();
   if (contentCode !== 200) throw new Error('GASプロジェクト取得失敗 HTTP ' + contentCode + '\n' + contentRes.getContentText());
-
   const project = JSON.parse(contentRes.getContentText());
   if (!project.files || !project.files.length) throw new Error('現在のGASプロジェクトを取得できません。');
-
   const githubManifest = getGitHubFile_(c, 'gas/appsscript');
   if (!githubManifest) throw new Error('GitHubのgas/appsscriptを取得できません。');
-
   let parsed;
-  try { parsed = JSON.parse(githubManifest); }
-  catch (e) { throw new Error('GitHubのappsscriptが正しいJSONではありません。\n' + e.message); }
-
+  try { parsed = JSON.parse(githubManifest); } catch (e) { throw new Error('GitHubのappsscriptが正しいJSONではありません。\n' + e.message); }
   const scopes = Array.isArray(parsed.oauthScopes) ? parsed.oauthScopes : [];
-  if (scopes.indexOf('https://www.googleapis.com/auth/script.deployments.readonly') === -1) {
-    throw new Error('GitHub側のappsscriptに script.deployments.readonly がありません。');
-  }
-
+  if (scopes.indexOf('https://www.googleapis.com/auth/script.deployments.readonly') === -1) throw new Error('GitHub側のappsscriptに script.deployments.readonly がありません。');
   let manifestFound = false;
   const files = project.files.map(function(file) {
-    const isManifest = file.name === 'appsscript' || file.name === 'appsscript.json';
     const copy = {name:file.name,type:file.type,source:typeof file.source === 'string' ? file.source : ''};
-    if (isManifest) {
+    if (copy.name === 'appsscript' || copy.name === 'appsscript.json') {
       copy.name = 'appsscript';
       copy.type = 'JSON';
       copy.source = JSON.stringify(parsed, null, 2);
@@ -86,12 +69,7 @@ function GASマニフェスト権限反映() {
     }
     return copy;
   });
-
-  if (!manifestFound) {
-    console.log('GAS APIのファイル一覧にマニフェストが見つからないため、appsscriptとして追加します。');
-    files.push({name:'appsscript',type:'JSON',source:JSON.stringify(parsed, null, 2)});
-  }
-
+  if (!manifestFound) throw new Error('GAS APIからマニフェストが取得できません。GASエディタの「プロジェクトの設定」でマニフェストファイルを表示する設定を確認してください。');
   updateGasProjectContent_(files);
   console.log('appsscript.jsonをGitHub版へ反映しました。');
   console.log('追加対象: https://www.googleapis.com/auth/script.deployments.readonly');
@@ -102,13 +80,7 @@ function GASマニフェスト権限反映() {
 function updateGasProjectContent_(files) {
   const scriptId = ScriptApp.getScriptId();
   const url = 'https://script.googleapis.com/v1/projects/' + encodeURIComponent(scriptId) + '/content';
-  const res = UrlFetchApp.fetch(url, {
-    method: 'put',
-    contentType: 'application/json',
-    headers: {Authorization: 'Bearer ' + ScriptApp.getOAuthToken()},
-    payload: JSON.stringify({files: files}),
-    muteHttpExceptions: true
-  });
+  const res = UrlFetchApp.fetch(url, {method:'put',contentType:'application/json',headers:{Authorization:'Bearer ' + ScriptApp.getOAuthToken()},payload:JSON.stringify({files:files}),muteHttpExceptions:true});
   const code = res.getResponseCode();
   if (code !== 200) throw new Error('GAS更新失敗 HTTP ' + code + '\n' + res.getContentText());
 }
@@ -123,22 +95,36 @@ function GASデプロイ一覧確認() {
   const data = JSON.parse(body);
   const oldPinterestRedirect = 'https://script.google.com/macros/s/AKfycbw5WwonV2fI6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec';
   const rows = [];
-  (data.deployments || []).forEach(function(deployment) {
-    (deployment.entryPoints || []).forEach(function(entry) {
-      const webApp = entry.webApp || {};
-      const webUrl = webApp.url || '';
-      rows.push({deploymentId:deployment.deploymentId || '',versionNumber:deployment.versionNumber || '',updateTime:deployment.updateTime || '',webAppUrl:webUrl,matchesPinterestRedirect:webUrl === oldPinterestRedirect});
-    });
-  });
+  (data.deployments || []).forEach(function(deployment) {(deployment.entryPoints || []).forEach(function(entry) {const webApp = entry.webApp || {}; const webUrl = webApp.url || ''; rows.push({deploymentId:deployment.deploymentId || '',versionNumber:deployment.versionNumber || '',updateTime:deployment.updateTime || '',webAppUrl:webUrl,matchesPinterestRedirect:webUrl === oldPinterestRedirect});});});
   rows.sort(function(a,b){return String(b.updateTime).localeCompare(String(a.updateTime));});
   rows.forEach(function(row,index){console.log((index+1)+'. version='+row.versionNumber+' / updated='+row.updateTime+' / match='+row.matchesPinterestRedirect+' / URL='+row.webAppUrl+' / deployment='+row.deploymentId);});
   const matched = rows.filter(function(row){return row.matchesPinterestRedirect;});
   console.log('--- 結果 ---');
   console.log('取得デプロイ数: ' + rows.length);
   console.log('Pinterest旧リダイレクトURL一致数: ' + matched.length);
-  if (matched.length) matched.forEach(function(row){console.log('一致: version='+row.versionNumber+' / deployment='+row.deploymentId);});
-  else console.log('一致する旧URLはありません。現行WebアプリURLへ統一する段階です。');
+  if (matched.length) matched.forEach(function(row){console.log('一致: version='+row.versionNumber+' / deployment='+row.deploymentId);}); else console.log('一致する旧URLはありません。現行WebアプリURLへ統一する段階です。');
   return rows;
+}
+
+function Pinterest旧URLデプロイ最新版更新() {
+  const scriptId = ScriptApp.getScriptId();
+  const deploymentId = 'AKfycbw5WwonV2fI6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL';
+  console.log('Pinterest旧URLデプロイ最新版更新開始');
+  const versionUrl = 'https://script.googleapis.com/v1/projects/' + encodeURIComponent(scriptId) + '/versions';
+  const versionRes = UrlFetchApp.fetch(versionUrl, {method:'post',contentType:'application/json',headers:{Authorization:'Bearer ' + ScriptApp.getOAuthToken()},payload:JSON.stringify({description:'Pinterest OAuth用最新版'}),muteHttpExceptions:true});
+  const versionCode = versionRes.getResponseCode();
+  if (versionCode !== 200) throw new Error('GASバージョン作成失敗 HTTP ' + versionCode + '\n' + versionRes.getContentText());
+  const version = JSON.parse(versionRes.getContentText());
+  const versionNumber = version.versionNumber;
+  console.log('新バージョン作成: ' + versionNumber);
+  const updateUrl = 'https://script.googleapis.com/v1/projects/' + encodeURIComponent(scriptId) + '/deployments/' + encodeURIComponent(deploymentId);
+  const updateRes = UrlFetchApp.fetch(updateUrl, {method:'put',contentType:'application/json',headers:{Authorization:'Bearer ' + ScriptApp.getOAuthToken()},payload:JSON.stringify({deploymentConfig:{scriptId:scriptId,versionNumber:versionNumber}}),muteHttpExceptions:true});
+  const updateCode = updateRes.getResponseCode();
+  if (updateCode !== 200) throw new Error('Pinterest旧URLデプロイ更新失敗 HTTP ' + updateCode + '\n' + updateRes.getContentText());
+  console.log('Pinterest旧URLデプロイを最新版へ更新しました。');
+  console.log('deployment=' + deploymentId);
+  console.log('version=' + versionNumber);
+  return 'Pinterest旧URLデプロイ最新版更新完了: version=' + versionNumber;
 }
 
 function listGitHubGasFiles_(c) {
