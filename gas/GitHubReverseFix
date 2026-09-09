@@ -10,388 +10,129 @@
 
 /**
  * GitHub → GAS 自動同期
- *
- * 使い方：
- * 1. GitHubReverseFix.gsを保存
- * 2. syncGitHubToGasAuto を実行
  */
 function syncGitHubToGasAuto() {
-
   const c = ghConfig_();
-
-  console.log(
-    'GitHub → GAS 自動同期開始'
-  );
-
-
-  /*
-   * 現在のGASプロジェクトを取得
-   */
-  const project =
-    getGasProject_();
-
-  if (
-    !project.files ||
-    !project.files.length
-  ) {
-    throw new Error(
-      '現在のGASプロジェクトを取得できません。'
-    );
-  }
-
-
-  /*
-   * GitHubのgasフォルダを取得
-   */
-  const githubFiles =
-    listGitHubGasFiles_(c);
-
-  if (!githubFiles.length) {
-    throw new Error(
-      'GitHubのgasフォルダにファイルがありません。'
-    );
-  }
-
-
-  console.log(
-    'GitHub gasファイル: ' +
-    githubFiles
-      .map(function(file) {
-        return file.name;
-      })
-      .join(', ')
-  );
-
-
-  /*
-   * GAS側のSERVER_JSファイルを取得
-   */
-  const gasServerFiles =
-    project.files.filter(
-      function(file) {
-        return (
-          file.type === 'SERVER_JS'
-        );
-      }
-    );
-
-
-  if (!gasServerFiles.length) {
-    throw new Error(
-      'GAS側のSERVER_JSファイルが見つかりません。'
-    );
-  }
-
-
-  /*
-   * GitHubとGASでファイル名が
-   * 完全一致するものを最優先
-   */
+  console.log('GitHub → GAS 自動同期開始');
+  const project = getGasProject_();
+  if (!project.files || !project.files.length) throw new Error('現在のGASプロジェクトを取得できません。');
+  const githubFiles = listGitHubGasFiles_(c);
+  if (!githubFiles.length) throw new Error('GitHubのgasフォルダにファイルがありません。');
+  console.log('GitHub gasファイル: ' + githubFiles.map(function(file){return file.name;}).join(', '));
+  const gasServerFiles = project.files.filter(function(file){return file.type === 'SERVER_JS';});
+  if (!gasServerFiles.length) throw new Error('GAS側のSERVER_JSファイルが見つかりません。');
   let target = null;
   let targetGasName = null;
-
-
-  for (
-    let i = 0;
-    i < gasServerFiles.length;
-    i++
-  ) {
-
-    const gasName =
-      gasServerFiles[i].name;
-
-
-    const match =
-      githubFiles.find(
-        function(file) {
-          return (
-            file.name === gasName
-          );
-        }
-      );
-
-
-    /*
-     * GitHubSync自身は対象にしない
-     */
-    if (
-      match &&
-      !/GitHubSync/i.test(
-        gasName
-      )
-    ) {
-
-      target = match;
-
-      targetGasName =
-        gasName;
-
-      break;
-    }
+  for (let i = 0; i < gasServerFiles.length; i++) {
+    const gasName = gasServerFiles[i].name;
+    const match = githubFiles.find(function(file){return file.name === gasName;});
+    if (match && !/GitHubSync/i.test(gasName)) { target = match; targetGasName = gasName; break; }
   }
-
-
-  /*
-   * 完全一致しない場合の予備処理
-   *
-   * GitHub上の .gs ファイルから
-   * GitHubSync以外を探す
-   */
   if (!target) {
-
-    target =
-      githubFiles.find(
-        function(file) {
-
-          return (
-            /\.gs$/i.test(
-              file.name
-            ) &&
-            !/GitHubSync/i.test(
-              file.name
-            )
-          );
-
-        }
-      );
-
-
+    target = githubFiles.find(function(file){return /\.gs$/i.test(file.name) && !/GitHubSync/i.test(file.name);});
     if (target) {
-
-      const gasMatch =
-        gasServerFiles.find(
-          function(file) {
-
-            return (
-              !/GitHubSync/i.test(
-                file.name
-              )
-            );
-
-          }
-        );
-
-
-      if (gasMatch) {
-
-        targetGasName =
-          gasMatch.name;
-
-      }
-
+      const gasMatch = gasServerFiles.find(function(file){return !/GitHubSync/i.test(file.name);});
+      if (gasMatch) targetGasName = gasMatch.name;
     }
-
   }
-
-
-  /*
-   * 対象ファイルを特定できなかった場合
-   */
-  if (
-    !target ||
-    !targetGasName
-  ) {
-
-    throw new Error(
-      'GitHub側の対象GASファイルを特定できません。\n' +
-
-      'GitHub: ' +
-
-      githubFiles
-        .map(function(file) {
-          return file.name;
-        })
-        .join(', ') +
-
-      '\nGAS: ' +
-
-      gasServerFiles
-        .map(function(file) {
-          return file.name;
-        })
-        .join(', ')
-    );
-
+  if (!target || !targetGasName) {
+    throw new Error('GitHub側の対象GASファイルを特定できません。\nGitHub: ' + githubFiles.map(function(file){return file.name;}).join(', ') + '\nGAS: ' + gasServerFiles.map(function(file){return file.name;}).join(', '));
   }
-
-
-  console.log(
-    '同期対象: ' +
-    target.name +
-    ' → GAS ' +
-    targetGasName
-  );
-
-
-  /*
-   * GitHubからソースコードを取得
-   */
-  const githubSource =
-    getGitHubFile_(
-      c,
-      target.path
-    );
-
-
-  /*
-   * 現在のGASファイルをすべて保持
-   *
-   * GitHub版を入れるのは
-   * 対象ファイルだけ
-   */
-  const files =
-    project.files.map(
-      function(file) {
-
-        return {
-          name: file.name,
-
-          type: file.type,
-
-          source:
-            typeof file.source ===
-            'string'
-              ? file.source
-              : ''
-        };
-
-      }
-    );
-
-
+  console.log('同期対象: ' + target.name + ' → GAS ' + targetGasName);
+  const githubSource = getGitHubFile_(c, target.path);
+  const files = project.files.map(function(file){return {name:file.name,type:file.type,source:typeof file.source === 'string' ? file.source : ''};});
   let replaced = false;
+  files.forEach(function(file){if(file.name === targetGasName){file.source = githubSource; replaced = true;}});
+  if (!replaced) throw new Error('GAS側の対象ファイルを置換できませんでした。');
+  updateGasProjectContent_(files);
+  console.log('GitHub → GAS 自動同期完了');
+  console.log('同期元: ' + target.path);
+  console.log('同期先: GAS ' + targetGasName);
+  console.log('保持したGASファイル数: ' + files.length);
+  return 'GitHub → GAS 自動同期完了: ' + target.path + ' → GAS ' + targetGasName;
+}
 
 
-  files.forEach(
-    function(file) {
+/*************************************************
+ * GitHub appsscript → GAS appsscript.json 反映
+ *
+ * GitHub側で追加したOAuthスコープを、
+ * GASプロジェクトのマニフェストへ反映する。
+ *************************************************/
+function GASマニフェスト権限反映() {
+  const c = ghConfig_();
+  console.log('GASマニフェスト権限反映開始');
 
-      if (
-        file.name ===
-        targetGasName
-      ) {
+  const project = getGasProject_();
+  if (!project.files || !project.files.length) {
+    throw new Error('現在のGASプロジェクトを取得できません。');
+  }
 
-        file.source =
-          githubSource;
+  const githubManifest = getGitHubFile_(c, 'gas/appsscript');
+  if (!githubManifest) {
+    throw new Error('GitHubのgas/appsscriptを取得できません。');
+  }
 
-        replaced = true;
+  let parsed;
+  try {
+    parsed = JSON.parse(githubManifest);
+  } catch (e) {
+    throw new Error('GitHubのappsscriptが正しいJSONではありません。\n' + e.message);
+  }
 
-      }
+  const scopes = Array.isArray(parsed.oauthScopes) ? parsed.oauthScopes : [];
+  if (scopes.indexOf('https://www.googleapis.com/auth/script.deployments.readonly') === -1) {
+    throw new Error('GitHub側のappsscriptに script.deployments.readonly がありません。');
+  }
 
+  let manifestFound = false;
+  const files = project.files.map(function(file) {
+    const copy = {
+      name: file.name,
+      type: file.type,
+      source: typeof file.source === 'string' ? file.source : ''
+    };
+    if (copy.name === 'appsscript.json') {
+      copy.type = 'JSON';
+      copy.source = JSON.stringify(parsed, null, 2);
+      manifestFound = true;
     }
-  );
+    return copy;
+  });
 
-
-  /*
-   * GAS側の対象ファイルが
-   * 見つからなかった場合
-   */
-  if (!replaced) {
-
-    throw new Error(
-      'GAS側の対象ファイルを置換できませんでした。'
-    );
-
+  if (!manifestFound) {
+    throw new Error('GASプロジェクト内にappsscript.jsonが見つかりません。');
   }
 
+  updateGasProjectContent_(files);
 
-  /*
-   * Apps Script APIへ更新
-   */
-  const scriptId =
-    ScriptApp.getScriptId();
-
-
-  const url =
-    'https://script.googleapis.com/v1/projects/' +
-    encodeURIComponent(
-      scriptId
-    ) +
-    '/content';
+  console.log('appsscript.jsonをGitHub版へ反映しました。');
+  console.log('追加対象: https://www.googleapis.com/auth/script.deployments.readonly');
+  console.log('次回のGAS実行時に権限承認が必要になる場合があります。');
+  return 'GASマニフェスト反映完了';
+}
 
 
-  const res =
-    UrlFetchApp.fetch(
-      url,
-      {
-        method: 'put',
-
-        contentType:
-          'application/json',
-
-        headers: {
-          Authorization:
-            'Bearer ' +
-            ScriptApp.getOAuthToken()
-        },
-
-        payload:
-          JSON.stringify({
-            files: files
-          }),
-
-        muteHttpExceptions: true
-      }
-    );
-
-
-  const code =
-    res.getResponseCode();
-
-
-  /*
-   * 更新失敗
-   */
-  if (code !== 200) {
-
-    throw new Error(
-      'GAS更新失敗 HTTP ' +
-      code +
-      '\n' +
-      res.getContentText()
-    );
-
-  }
-
-
-  /*
-   * 完了
-   */
-  console.log(
-    'GitHub → GAS 自動同期完了'
-  );
-
-
-  console.log(
-    '同期元: ' +
-    target.path
-  );
-
-
-  console.log(
-    '同期先: GAS ' +
-    targetGasName
-  );
-
-
-  console.log(
-    '保持したGASファイル数: ' +
-    files.length
-  );
-
-
-  return (
-    'GitHub → GAS 自動同期完了: ' +
-    target.path +
-    ' → GAS ' +
-    targetGasName
-  );
-
+/*************************************************
+ * GASプロジェクト全体更新共通処理
+ *************************************************/
+function updateGasProjectContent_(files) {
+  const scriptId = ScriptApp.getScriptId();
+  const url = 'https://script.googleapis.com/v1/projects/' + encodeURIComponent(scriptId) + '/content';
+  const res = UrlFetchApp.fetch(url, {
+    method: 'put',
+    contentType: 'application/json',
+    headers: {Authorization: 'Bearer ' + ScriptApp.getOAuthToken()},
+    payload: JSON.stringify({files: files}),
+    muteHttpExceptions: true
+  });
+  const code = res.getResponseCode();
+  if (code !== 200) throw new Error('GAS更新失敗 HTTP ' + code + '\n' + res.getContentText());
 }
 
 
 /*************************************************
  * GASデプロイ一覧＋Pinterest旧URL照合
- * 手作業で「無題」を1件ずつ確認しないための診断機能
  *************************************************/
 function GASデプロイ一覧確認() {
   const scriptId = ScriptApp.getScriptId();
@@ -399,66 +140,29 @@ function GASデプロイ一覧確認() {
   const res = UrlFetchApp.fetch(url, {
     method: 'get',
     muteHttpExceptions: true,
-    headers: {
-      Authorization: 'Bearer ' + ScriptApp.getOAuthToken()
-    }
+    headers: {Authorization: 'Bearer ' + ScriptApp.getOAuthToken()}
   });
-
   const code = res.getResponseCode();
   const body = res.getContentText();
-  if (code !== 200) {
-    throw new Error('GASデプロイ一覧取得失敗 HTTP ' + code + '\n' + body);
-  }
-
+  if (code !== 200) throw new Error('GASデプロイ一覧取得失敗 HTTP ' + code + '\n' + body);
   const data = JSON.parse(body);
   const oldPinterestRedirect = 'https://script.google.com/macros/s/AKfycbw5WwonV2fI6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec';
   const rows = [];
-
   (data.deployments || []).forEach(function(deployment) {
-    const entryPoints = deployment.entryPoints || [];
-    entryPoints.forEach(function(entry) {
+    (deployment.entryPoints || []).forEach(function(entry) {
       const webApp = entry.webApp || {};
       const webUrl = webApp.url || '';
-      rows.push({
-        deploymentId: deployment.deploymentId || '',
-        versionNumber: deployment.versionNumber || '',
-        updateTime: deployment.updateTime || '',
-        webAppUrl: webUrl,
-        matchesPinterestRedirect: webUrl === oldPinterestRedirect
-      });
+      rows.push({deploymentId:deployment.deploymentId || '',versionNumber:deployment.versionNumber || '',updateTime:deployment.updateTime || '',webAppUrl:webUrl,matchesPinterestRedirect:webUrl === oldPinterestRedirect});
     });
   });
-
-  rows.sort(function(a, b) {
-    return String(b.updateTime).localeCompare(String(a.updateTime));
-  });
-
-  rows.forEach(function(row, index) {
-    console.log(
-      (index + 1) + '. version=' + row.versionNumber +
-      ' / updated=' + row.updateTime +
-      ' / match=' + row.matchesPinterestRedirect +
-      ' / URL=' + row.webAppUrl +
-      ' / deployment=' + row.deploymentId
-    );
-  });
-
-  const matched = rows.filter(function(row) {
-    return row.matchesPinterestRedirect;
-  });
-
+  rows.sort(function(a,b){return String(b.updateTime).localeCompare(String(a.updateTime));});
+  rows.forEach(function(row,index){console.log((index+1)+'. version='+row.versionNumber+' / updated='+row.updateTime+' / match='+row.matchesPinterestRedirect+' / URL='+row.webAppUrl+' / deployment='+row.deploymentId);});
+  const matched = rows.filter(function(row){return row.matchesPinterestRedirect;});
   console.log('--- 結果 ---');
   console.log('取得デプロイ数: ' + rows.length);
   console.log('Pinterest旧リダイレクトURL一致数: ' + matched.length);
-
-  if (matched.length) {
-    matched.forEach(function(row) {
-      console.log('一致: version=' + row.versionNumber + ' / deployment=' + row.deploymentId);
-    });
-  } else {
-    console.log('一致する旧URLはありません。現行WebアプリURLへ統一する段階です。');
-  }
-
+  if (matched.length) matched.forEach(function(row){console.log('一致: version='+row.versionNumber+' / deployment='+row.deploymentId);});
+  else console.log('一致する旧URLはありません。現行WebアプリURLへ統一する段階です。');
   return rows;
 }
 
@@ -466,147 +170,28 @@ function GASデプロイ一覧確認() {
 /*************************************************
  * GitHubのgasフォルダ一覧取得
  *************************************************/
-
 function listGitHubGasFiles_(c) {
-
-  const url =
-    GH_API +
-    '/repos/' +
-    encodeURIComponent(
-      c.owner
-    ) +
-    '/' +
-    encodeURIComponent(
-      c.repo
-    ) +
-    '/contents/gas?ref=' +
-    encodeURIComponent(
-      c.branch
-    );
-
-
-  const res =
-    UrlFetchApp.fetch(
-      url,
-      {
-        method: 'get',
-
-        headers: {
-          Authorization:
-            'Bearer ' +
-            c.token,
-
-          Accept:
-            'application/vnd.github+json'
-        },
-
-        muteHttpExceptions: true
-      }
-    );
-
-
-  const code =
-    res.getResponseCode();
-
-
-  if (code !== 200) {
-
-    throw new Error(
-      'GitHub gasフォルダ取得失敗 HTTP ' +
-      code +
-      '\n' +
-      res.getContentText()
-    );
-
-  }
-
-
-  const data =
-    JSON.parse(
-      res.getContentText()
-    );
-
-
-  if (
-    !Array.isArray(data)
-  ) {
-
-    throw new Error(
-      'GitHub gasフォルダの形式が不正です。'
-    );
-
-  }
-
-
-  return data.filter(
-    function(file) {
-
-      return (
-        file.type === 'file'
-      );
-
-    }
-  );
-
+  const url = GH_API + '/repos/' + encodeURIComponent(c.owner) + '/' + encodeURIComponent(c.repo) + '/contents/gas?ref=' + encodeURIComponent(c.branch);
+  const res = UrlFetchApp.fetch(url, {method:'get',headers:{Authorization:'Bearer '+c.token,Accept:'application/vnd.github+json'},muteHttpExceptions:true});
+  const code = res.getResponseCode();
+  if (code !== 200) throw new Error('GitHub gasフォルダ取得失敗 HTTP ' + code + '\n' + res.getContentText());
+  const data = JSON.parse(res.getContentText());
+  if (!Array.isArray(data)) throw new Error('GitHub gasフォルダの形式が不正です。');
+  return data.filter(function(file){return file.type === 'file';});
 }
 
 
 /*************************************************
  * GitHub設定取得
- *
- * 既存GitHubSync.gsの
- * ghConfig_()を使用する。
- *
- * 万一既存関数が利用できない場合に備え、
- * このファイル単体でも設定確認できる構造。
  *************************************************/
-
 function getGitHubReverseConfig_() {
-
-  const props =
-    PropertiesService
-      .getScriptProperties();
-
-
+  const props = PropertiesService.getScriptProperties();
   const config = {
-
-    owner:
-      props.getProperty(
-        'GITHUB_OWNER'
-      ),
-
-    repo:
-      props.getProperty(
-        'GITHUB_REPO'
-      ),
-
-    branch:
-      props.getProperty(
-        'GITHUB_BRANCH'
-      ) || 'main',
-
-    token:
-      props.getProperty(
-        'GITHUB_TOKEN'
-      )
-
+    owner: props.getProperty('GITHUB_OWNER'),
+    repo: props.getProperty('GITHUB_REPO'),
+    branch: props.getProperty('GITHUB_BRANCH') || 'main',
+    token: props.getProperty('GITHUB_TOKEN')
   };
-
-
-  if (
-    !config.owner ||
-    !config.repo ||
-    !config.token
-  ) {
-
-    throw new Error(
-      'GitHub設定が不足しています。\n' +
-      'GITHUB_OWNER / GITHUB_REPO / GITHUB_TOKEN を確認してください。'
-    );
-
-  }
-
-
+  if (!config.owner || !config.repo || !config.token) throw new Error('GitHub設定が不足しています。\nGITHUB_OWNER / GITHUB_REPO / GITHUB_TOKEN を確認してください。');
   return config;
-
 }
