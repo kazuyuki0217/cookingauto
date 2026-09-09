@@ -29,116 +29,475 @@ function ghConfig_() {
   return config;
 }
 
+
+/*************************************************
+ * GitHub接続テスト
+ *************************************************/
+
 function testGitHubConnection() {
+
   const c = ghConfig_();
-  const url = GH_API + '/repos/' + encodeURIComponent(c.owner) + '/' + encodeURIComponent(c.repo);
-  const res = UrlFetchApp.fetch(url, {method:'get', headers:{Authorization:'Bearer ' + c.token, Accept:'application/vnd.github+json'}, muteHttpExceptions:true});
+
+  const url =
+    GH_API +
+    '/repos/' +
+    encodeURIComponent(c.owner) +
+    '/' +
+    encodeURIComponent(c.repo);
+
+  const res = UrlFetchApp.fetch(url, {
+    method: 'get',
+    headers: {
+      Authorization: 'Bearer ' + c.token,
+      Accept: 'application/vnd.github+json'
+    },
+    muteHttpExceptions: true
+  });
+
   const code = res.getResponseCode();
-  if (code !== 200) throw new Error('GitHub接続失敗 HTTP ' + code + '\n' + res.getContentText());
+
+  if (code !== 200) {
+    throw new Error(
+      'GitHub接続失敗 HTTP ' +
+      code +
+      '\n' +
+      res.getContentText()
+    );
+  }
+
   const data = JSON.parse(res.getContentText());
+
   console.log('GitHub接続成功: ' + data.full_name);
+
   return 'GitHub接続成功: ' + data.full_name;
 }
 
+
+/*************************************************
+ * Apps Script API
+ * 現在のGASプロジェクトを取得
+ *************************************************/
+
 function getGasProject_() {
+
   const scriptId = ScriptApp.getScriptId();
-  const url = 'https://script.googleapis.com/v1/projects/' + encodeURIComponent(scriptId) + '/content';
-  const res = UrlFetchApp.fetch(url, {method:'get', headers:{Authorization:'Bearer ' + ScriptApp.getOAuthToken()}, muteHttpExceptions:true});
+
+  const url =
+    'https://script.googleapis.com/v1/projects/' +
+    encodeURIComponent(scriptId) +
+    '/content';
+
+  const res = UrlFetchApp.fetch(url, {
+    method: 'get',
+    headers: {
+      Authorization:
+        'Bearer ' + ScriptApp.getOAuthToken()
+    },
+    muteHttpExceptions: true
+  });
+
   const code = res.getResponseCode();
-  if (code !== 200) throw new Error('Apps Script API取得失敗 HTTP ' + code + '\n' + res.getContentText());
+
+  if (code !== 200) {
+    throw new Error(
+      'Apps Script API取得失敗 HTTP ' +
+      code +
+      '\n' +
+      res.getContentText()
+    );
+  }
+
   return JSON.parse(res.getContentText());
 }
 
+
+/*************************************************
+ * GAS → GitHub
+ *************************************************/
+
 function syncGasToGitHub() {
+
   const c = ghConfig_();
   const project = getGasProject_();
-  if (!project.files || !project.files.length) throw new Error('GASファイルが取得できませんでした。');
-  console.log('GASファイル数: ' + project.files.length);
+
+  if (!project.files || !project.files.length) {
+    throw new Error('GASファイルが取得できませんでした。');
+  }
+
+  console.log(
+    'GASファイル数: ' +
+    project.files.length
+  );
+
   let count = 0;
+
   project.files.forEach(function(file) {
-    if (!file.name || typeof file.source !== 'string') return;
-    const path = 'gas/' + file.name;
-    uploadGitHubFile_(c, path, file.source, 'GAS → GitHub: ' + file.name);
+
+    if (
+      !file.name ||
+      typeof file.source !== 'string'
+    ) {
+      return;
+    }
+
+    const path =
+      'gas/' + file.name;
+
+    uploadGitHubFile_(
+      c,
+      path,
+      file.source,
+      'GAS → GitHub: ' + file.name
+    );
+
     count++;
-    console.log('保存: ' + path);
+
+    console.log(
+      '保存: ' + path
+    );
   });
-  console.log('GAS → GitHub 完了。' + count + 'ファイル');
-  return 'GAS → GitHub 完了: ' + count + 'ファイル';
+
+  console.log(
+    'GAS → GitHub 完了。' +
+    count +
+    'ファイル'
+  );
+
+  return (
+    'GAS → GitHub 完了: ' +
+    count +
+    'ファイル'
+  );
 }
+
+
+/*************************************************
+ * GitHubファイル取得
+ *************************************************/
 
 function getGitHubFile_(c, path) {
-  const url = GH_API + '/repos/' + encodeURIComponent(c.owner) + '/' + encodeURIComponent(c.repo) + '/contents/' + path.split('/').map(encodeURIComponent).join('/') + '?ref=' + encodeURIComponent(c.branch);
-  const res = UrlFetchApp.fetch(url, {method:'get', headers:{Authorization:'Bearer ' + c.token, Accept:'application/vnd.github+json'}, muteHttpExceptions:true});
+
+  const url =
+    GH_API +
+    '/repos/' +
+    encodeURIComponent(c.owner) +
+    '/' +
+    encodeURIComponent(c.repo) +
+    '/contents/' +
+    path
+      .split('/')
+      .map(encodeURIComponent)
+      .join('/') +
+    '?ref=' +
+    encodeURIComponent(c.branch);
+
+  const res = UrlFetchApp.fetch(url, {
+    method: 'get',
+    headers: {
+      Authorization: 'Bearer ' + c.token,
+      Accept: 'application/vnd.github+json'
+    },
+    muteHttpExceptions: true
+  });
+
   const code = res.getResponseCode();
-  if (code !== 200) throw new Error('GitHubファイル取得失敗 HTTP ' + code + '\n' + path + '\n' + res.getContentText());
-  const data = JSON.parse(res.getContentText());
-  if (!data.content) throw new Error('GitHubファイル内容がありません: ' + path);
-  const bytes = Utilities.base64Decode(data.content.replace(/\s/g, ''));
-  return Utilities.newBlob(bytes).getDataAsString('UTF-8');
+
+  if (code !== 200) {
+    throw new Error(
+      'GitHubファイル取得失敗 HTTP ' +
+      code +
+      '\n' +
+      path +
+      '\n' +
+      res.getContentText()
+    );
+  }
+
+  const data = JSON.parse(
+    res.getContentText()
+  );
+
+  if (!data.content) {
+    throw new Error(
+      'GitHubファイル内容がありません: ' +
+      path
+    );
+  }
+
+  const bytes =
+    Utilities.base64Decode(
+      data.content.replace(/\s/g, '')
+    );
+
+  return Utilities
+    .newBlob(bytes)
+    .getDataAsString('UTF-8');
 }
 
-function getGitHubCodePath_(c) {
-  const candidates = ['gas/Code.gs', 'gas/コード', 'gas/コード.gs', 'gas/Code'];
-  for (let i = 0; i < candidates.length; i++) {
-    const url = GH_API + '/repos/' + encodeURIComponent(c.owner) + '/' + encodeURIComponent(c.repo) + '/contents/' + candidates[i].split('/').map(encodeURIComponent).join('/') + '?ref=' + encodeURIComponent(c.branch);
-    const res = UrlFetchApp.fetch(url, {method:'get', headers:{Authorization:'Bearer ' + c.token, Accept:'application/vnd.github+json'}, muteHttpExceptions:true});
-    if (res.getResponseCode() === 200) return candidates[i];
-    if (res.getResponseCode() !== 404) throw new Error('GitHubコード確認失敗 HTTP ' + res.getResponseCode() + '\n' + candidates[i] + '\n' + res.getContentText());
-  }
-  throw new Error('GitHub側の料理自動化コードが見つかりません。Code.gs / コード / コード.gs / Code を確認してください。');
-}
+
+/*************************************************
+ * GitHub → GAS
+ *
+ * Code.gsのみを変更対象とする安全版
+ *
+ * 他のGASファイルは現在のGASを保持する。
+ *************************************************/
 
 function syncGitHubToGas() {
+
   const c = ghConfig_();
+
   console.log('GitHub → GAS 開始');
+
+  /*
+   * 最初に現在のGAS全体を取得
+   */
   const project = getGasProject_();
-  if (!project.files) throw new Error('現在のGASプロジェクトを取得できません。');
-  const githubPath = getGitHubCodePath_(c);
-  const githubCode = getGitHubFile_(c, githubPath);
-  console.log('同期元: ' + githubPath);
-  const files = project.files.map(function(file) {
-    return {name:file.name, type:file.type, source:typeof file.source === 'string' ? file.source : ''};
-  });
+
+  if (!project.files) {
+    throw new Error(
+      '現在のGASプロジェクトを取得できません。'
+    );
+  }
+
+  /*
+   * GitHubのCode.gsを取得
+   */
+  const githubCode =
+    getGitHubFile_(
+      c,
+      'gas/Code.gs'
+    );
+
+  /*
+   * 現在のGASファイルをコピー
+   */
+  const files =
+    project.files.map(function(file) {
+
+      return {
+        name: file.name,
+        type: file.type,
+        source:
+          typeof file.source === 'string'
+            ? file.source
+            : ''
+      };
+
+    });
+
+  /*
+   * Code.gsだけ差し替える
+   */
   let found = false;
-  const gasCandidates = ['Code.gs', 'コード', 'コード.gs', 'Code'];
+
   files.forEach(function(file) {
-    if (gasCandidates.indexOf(file.name) !== -1 && !found) {
+
+    if (file.name === 'Code.gs') {
+
       file.source = githubCode;
       found = true;
-      console.log('同期先: GAS ' + file.name);
+
     }
+
   });
+
+  /*
+   * Code.gsが無ければ追加
+   */
   if (!found) {
-    const server = files.find(function(file) { return file.type === 'SERVER_JS' && !/GitHubSync|GitHubReverseFix|GitHubAutoSync|GitHubSmartSync/i.test(file.name); });
-    if (server) {
-      server.source = githubCode;
-      found = true;
-      console.log('同期先: GAS ' + server.name + '（候補自動判定）');
-    }
+
+    files.push({
+      name: 'Code.gs',
+      type: 'SERVER_JS',
+      source: githubCode
+    });
+
   }
-  if (!found) files.push({name:'Code.gs', type:'SERVER_JS', source:githubCode});
-  const scriptId = ScriptApp.getScriptId();
-  const url = 'https://script.googleapis.com/v1/projects/' + encodeURIComponent(scriptId) + '/content';
-  const res = UrlFetchApp.fetch(url, {method:'put', contentType:'application/json', headers:{Authorization:'Bearer ' + ScriptApp.getOAuthToken()}, payload:JSON.stringify({files:files}), muteHttpExceptions:true});
-  const code = res.getResponseCode();
-  if (code !== 200) throw new Error('GAS更新失敗 HTTP ' + code + '\n' + res.getContentText());
-  console.log('GitHub → GAS 完了');
-  console.log('保持したGASファイル数: ' + files.length);
-  return 'GitHub → GAS 完了: ' + githubPath;
+
+  /*
+   * Apps Script APIへ全体更新
+   */
+  const scriptId =
+    ScriptApp.getScriptId();
+
+  const url =
+    'https://script.googleapis.com/v1/projects/' +
+    encodeURIComponent(scriptId) +
+    '/content';
+
+  const res = UrlFetchApp.fetch(url, {
+
+    method: 'put',
+
+    contentType:
+      'application/json',
+
+    headers: {
+      Authorization:
+        'Bearer ' + ScriptApp.getOAuthToken()
+    },
+
+    payload: JSON.stringify({
+      files: files
+    }),
+
+    muteHttpExceptions: true
+
+  });
+
+  const code =
+    res.getResponseCode();
+
+  if (code !== 200) {
+
+    throw new Error(
+      'GAS更新失敗 HTTP ' +
+      code +
+      '\n' +
+      res.getContentText()
+    );
+
+  }
+
+  console.log(
+    'GitHub → GAS 完了'
+  );
+
+  console.log(
+    '保持したGASファイル数: ' +
+    files.length
+  );
+
+  return (
+    'GitHub → GAS 完了'
+  );
 }
 
-function uploadGitHubFile_(c, path, content, message) {
-  const url = GH_API + '/repos/' + encodeURIComponent(c.owner) + '/' + encodeURIComponent(c.repo) + '/contents/' + path.split('/').map(encodeURIComponent).join('/');
+
+/*************************************************
+ * GitHubへファイル保存
+ *************************************************/
+
+function uploadGitHubFile_(
+  c,
+  path,
+  content,
+  message
+) {
+
+  const url =
+    GH_API +
+    '/repos/' +
+    encodeURIComponent(c.owner) +
+    '/' +
+    encodeURIComponent(c.repo) +
+    '/contents/' +
+    path
+      .split('/')
+      .map(encodeURIComponent)
+      .join('/');
+
+
+  /*
+   * 既存ファイルのSHA取得
+   */
   let sha = null;
-  const getRes = UrlFetchApp.fetch(url, {method:'get', headers:{Authorization:'Bearer ' + c.token, Accept:'application/vnd.github+json'}, muteHttpExceptions:true});
-  const getCode = getRes.getResponseCode();
-  if (getCode === 200) sha = JSON.parse(getRes.getContentText()).sha;
-  else if (getCode !== 404) throw new Error('GitHub既存ファイル確認失敗 HTTP ' + getCode + '\n' + getRes.getContentText());
-  const encoded = Utilities.base64Encode(Utilities.newBlob(content, 'text/plain').getBytes());
-  const body = {message:message, content:encoded, branch:c.branch};
-  if (sha) body.sha = sha;
-  const putRes = UrlFetchApp.fetch(url, {method:'put', contentType:'application/json', headers:{Authorization:'Bearer ' + c.token, Accept:'application/vnd.github+json'}, payload:JSON.stringify(body), muteHttpExceptions:true});
-  const putCode = putRes.getResponseCode();
-  if (putCode !== 200 && putCode !== 201) throw new Error('GitHub保存失敗 HTTP ' + putCode + '\n' + putRes.getContentText());
-  return JSON.parse(putRes.getContentText());
+
+  const getRes =
+    UrlFetchApp.fetch(url, {
+      method: 'get',
+      headers: {
+        Authorization:
+          'Bearer ' + c.token,
+        Accept:
+          'application/vnd.github+json'
+      },
+      muteHttpExceptions: true
+    });
+
+  const getCode =
+    getRes.getResponseCode();
+
+  if (getCode === 200) {
+
+    const old =
+      JSON.parse(
+        getRes.getContentText()
+      );
+
+    sha = old.sha;
+
+  } else if (getCode !== 404) {
+
+    throw new Error(
+      'GitHub既存ファイル確認失敗 HTTP ' +
+      getCode +
+      '\n' +
+      getRes.getContentText()
+    );
+
+  }
+
+
+  /*
+   * UTF-8 → Base64
+   */
+  const encoded =
+    Utilities.base64Encode(
+      Utilities.newBlob(
+        content,
+        'text/plain'
+      ).getBytes()
+    );
+
+
+  const body = {
+    message: message,
+    content: encoded,
+    branch: c.branch
+  };
+
+  if (sha) {
+    body.sha = sha;
+  }
+
+
+  const putRes =
+    UrlFetchApp.fetch(url, {
+      method: 'put',
+      contentType:
+        'application/json',
+      headers: {
+        Authorization:
+          'Bearer ' + c.token,
+        Accept:
+          'application/vnd.github+json'
+      },
+      payload:
+        JSON.stringify(body),
+      muteHttpExceptions: true
+    });
+
+
+  const putCode =
+    putRes.getResponseCode();
+
+  if (
+    putCode !== 200 &&
+    putCode !== 201
+  ) {
+
+    throw new Error(
+      'GitHub保存失敗 HTTP ' +
+      putCode +
+      '\n' +
+      putRes.getContentText()
+    );
+
+  }
+
+  return JSON.parse(
+    putRes.getContentText()
+  );
 }
