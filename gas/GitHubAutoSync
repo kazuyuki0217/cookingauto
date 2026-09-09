@@ -11,7 +11,11 @@ function runGitHubAutoSync() {
   console.log('開始時刻: ' + startedAt);
 
   try {
-    const result = runGitHubSmartSync();
+    /*
+     * 自動同期の入口を一本化。
+     * syncGitHubToGasAuto → GitHubSmartSync
+     */
+    const result = syncGitHubToGasAuto();
 
     console.log('同期結果: ' + result);
 
@@ -33,7 +37,6 @@ function runGitHubAutoSync() {
     return 'GitHub自動同期エラー: ' + message;
   }
 }
-
 
 function saveSyncLog_(status, message, startedAt, finishedAt) {
   const props = PropertiesService.getScriptProperties();
@@ -61,7 +64,6 @@ function saveSyncLog_(status, message, startedAt, finishedAt) {
   );
 }
 
-
 function getGitHubAutoSyncStatus() {
   const props = PropertiesService.getScriptProperties();
 
@@ -85,7 +87,6 @@ function getGitHubAutoSyncStatus() {
     '時刻: ' + time + '\n' +
     '詳細: ' + log;
 }
-
 
 /*************************************************
  * GitHub自動同期トリガー設定
