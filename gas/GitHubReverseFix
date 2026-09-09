@@ -390,6 +390,80 @@ function syncGitHubToGasAuto() {
 
 
 /*************************************************
+ * GASデプロイ一覧＋Pinterest旧URL照合
+ * 手作業で「無題」を1件ずつ確認しないための診断機能
+ *************************************************/
+function GASデプロイ一覧確認() {
+  const scriptId = ScriptApp.getScriptId();
+  const url = 'https://script.googleapis.com/v1/projects/' + encodeURIComponent(scriptId) + '/deployments?pageSize=100';
+  const res = UrlFetchApp.fetch(url, {
+    method: 'get',
+    muteHttpExceptions: true,
+    headers: {
+      Authorization: 'Bearer ' + ScriptApp.getOAuthToken()
+    }
+  });
+
+  const code = res.getResponseCode();
+  const body = res.getContentText();
+  if (code !== 200) {
+    throw new Error('GASデプロイ一覧取得失敗 HTTP ' + code + '\n' + body);
+  }
+
+  const data = JSON.parse(body);
+  const oldPinterestRedirect = 'https://script.google.com/macros/s/AKfycbw5WwonV2fI6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec';
+  const rows = [];
+
+  (data.deployments || []).forEach(function(deployment) {
+    const entryPoints = deployment.entryPoints || [];
+    entryPoints.forEach(function(entry) {
+      const webApp = entry.webApp || {};
+      const webUrl = webApp.url || '';
+      rows.push({
+        deploymentId: deployment.deploymentId || '',
+        versionNumber: deployment.versionNumber || '',
+        updateTime: deployment.updateTime || '',
+        webAppUrl: webUrl,
+        matchesPinterestRedirect: webUrl === oldPinterestRedirect
+      });
+    });
+  });
+
+  rows.sort(function(a, b) {
+    return String(b.updateTime).localeCompare(String(a.updateTime));
+  });
+
+  rows.forEach(function(row, index) {
+    console.log(
+      (index + 1) + '. version=' + row.versionNumber +
+      ' / updated=' + row.updateTime +
+      ' / match=' + row.matchesPinterestRedirect +
+      ' / URL=' + row.webAppUrl +
+      ' / deployment=' + row.deploymentId
+    );
+  });
+
+  const matched = rows.filter(function(row) {
+    return row.matchesPinterestRedirect;
+  });
+
+  console.log('--- 結果 ---');
+  console.log('取得デプロイ数: ' + rows.length);
+  console.log('Pinterest旧リダイレクトURL一致数: ' + matched.length);
+
+  if (matched.length) {
+    matched.forEach(function(row) {
+      console.log('一致: version=' + row.versionNumber + ' / deployment=' + row.deploymentId);
+    });
+  } else {
+    console.log('一致する旧URLはありません。現行WebアプリURLへ統一する段階です。');
+  }
+
+  return rows;
+}
+
+
+/*************************************************
  * GitHubのgasフォルダ一覧取得
  *************************************************/
 
