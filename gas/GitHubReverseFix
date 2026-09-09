@@ -63,7 +63,18 @@ function GASマニフェスト権限反映() {
   const c = ghConfig_();
   console.log('GASマニフェスト権限反映開始');
 
-  const project = getGasProject_();
+  const scriptId = ScriptApp.getScriptId();
+  const contentUrl = 'https://script.googleapis.com/v1/projects/' + encodeURIComponent(scriptId) + '/content?includeProjectManifest=true';
+  const contentRes = UrlFetchApp.fetch(contentUrl, {
+    method: 'get',
+    muteHttpExceptions: true,
+    headers: {Authorization: 'Bearer ' + ScriptApp.getOAuthToken()}
+  });
+  const contentCode = contentRes.getResponseCode();
+  if (contentCode !== 200) {
+    throw new Error('GASプロジェクト取得失敗 HTTP ' + contentCode + '\n' + contentRes.getContentText());
+  }
+  const project = JSON.parse(contentRes.getContentText());
   if (!project.files || !project.files.length) {
     throw new Error('現在のGASプロジェクトを取得できません。');
   }
@@ -101,7 +112,7 @@ function GASマニフェスト権限反映() {
   });
 
   if (!manifestFound) {
-    throw new Error('GASプロジェクト内にappsscript.jsonが見つかりません。');
+    throw new Error('GAS APIからappsscript.jsonが取得できません。includeProjectManifest=trueでも見つからないため、GASエディタ側のマニフェスト表示設定を確認してください。');
   }
 
   updateGasProjectContent_(files);
