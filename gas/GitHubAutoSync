@@ -1,6 +1,10 @@
 /*************************************************
  * 料理アフィリエイト自動化
  * GitHub 自動同期・安全実行
+ *
+ * GitHub → GAS同期を自動実行し、変更が反映された場合だけ
+ * Pinterest OAuth用の固定URLデプロイも最新版へ更新する。
+ * 同期不要の場合は新しいGASバージョンを作成しない。
  *************************************************/
 
 function runGitHubAutoSync() {
@@ -11,20 +15,33 @@ function runGitHubAutoSync() {
   console.log('開始時刻: ' + startedAt);
 
   try {
-    /*
-     * 自動同期の入口を一本化。
-     * syncGitHubToGasAuto → GitHubSmartSync
-     */
     const result = syncGitHubToGasAuto();
 
     console.log('同期結果: ' + result);
 
-    saveSyncLog_('SUCCESS', result, startedAt, new Date());
+    var deploymentResult = '';
+
+    if (typeof result === 'string' && result.indexOf('同期完了') !== -1) {
+      try {
+        deploymentResult = Pinterest旧URLデプロイ最新版更新();
+        console.log('固定URLデプロイ更新: ' + deploymentResult);
+      } catch (deploymentError) {
+        deploymentResult = deploymentError && deploymentError.message
+          ? deploymentError.message
+          : String(deploymentError);
+        console.log('固定URLデプロイ更新エラー: ' + deploymentResult);
+        console.log('GAS本体同期は成功しています。');
+      }
+    } else {
+      console.log('GAS側に反映すべき変更がないため、デプロイ更新は行いません。');
+    }
+
+    saveSyncLog_('SUCCESS', result + (deploymentResult ? '\n' + deploymentResult : ''), startedAt, new Date());
 
     console.log('GitHub自動同期 正常終了');
     console.log('================================');
 
-    return result;
+    return result + (deploymentResult ? '\n' + deploymentResult : '');
 
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
@@ -48,40 +65,18 @@ function saveSyncLog_(status, message, startedAt, finishedAt) {
     finishedAt: finishedAt.toISOString()
   };
 
-  props.setProperty(
-    'GITHUB_LAST_SYNC_LOG',
-    JSON.stringify(log)
-  );
-
-  props.setProperty(
-    'GITHUB_LAST_SYNC_STATUS',
-    status
-  );
-
-  props.setProperty(
-    'GITHUB_LAST_SYNC_TIME',
-    finishedAt.toISOString()
-  );
+  props.setProperty('GITHUB_LAST_SYNC_LOG', JSON.stringify(log));
+  props.setProperty('GITHUB_LAST_SYNC_STATUS', status);
+  props.setProperty('GITHUB_LAST_SYNC_TIME', finishedAt.toISOString());
 }
 
 function getGitHubAutoSyncStatus() {
   const props = PropertiesService.getScriptProperties();
+  const status = props.getProperty('GITHUB_LAST_SYNC_STATUS');
+  const time = props.getProperty('GITHUB_LAST_SYNC_TIME');
+  const log = props.getProperty('GITHUB_LAST_SYNC_LOG');
 
-  const status = props.getProperty(
-    'GITHUB_LAST_SYNC_STATUS'
-  );
-
-  const time = props.getProperty(
-    'GITHUB_LAST_SYNC_TIME'
-  );
-
-  const log = props.getProperty(
-    'GITHUB_LAST_SYNC_LOG'
-  );
-
-  if (!log) {
-    return '同期履歴はまだありません。';
-  }
+  if (!log) return '同期履歴はまだありません。';
 
   return '状態: ' + status + '\n' +
     '時刻: ' + time + '\n' +
@@ -97,10 +92,7 @@ function getGitHubAutoSyncStatus() {
 
 function setupGitHubAutoSyncTrigger() {
   ScriptApp.getProjectTriggers().forEach(function(trigger) {
-    if (
-      trigger.getHandlerFunction() ===
-      'runGitHubAutoSync'
-    ) {
+    if (trigger.getHandlerFunction() === 'runGitHubAutoSync') {
       ScriptApp.deleteTrigger(trigger);
     }
   });
