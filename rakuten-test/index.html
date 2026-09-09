@@ -8,7 +8,7 @@
 </head>
 <body>
 <h1>楽天API接続テスト</h1>
-<p>このページはWebアプリケーション方式の楽天API接続確認用です。</p>
+<p>楽天公式APIのJSONP方式で接続を確認します。アクセスキーはGitHubには保存しません。</p>
 <label>楽天アクセスキー</label>
 <input id="key" type="password" autocomplete="off" placeholder="アクセスキーを入力">
 <label>検索キーワード</label>
@@ -16,18 +16,56 @@
 <button onclick="searchRakuten()">楽天APIをテスト</button>
 <pre id="result">未実行</pre>
 <script>
-async function searchRakuten(){
+let callbackName='';
+function cleanup(){
+ if(callbackName){
+  try{delete window[callbackName];}catch(e){window[callbackName]=undefined;}
+  callbackName='';
+ }
+ const old=document.getElementById('rakuten-jsonp');
+ if(old) old.remove();
+}
+function searchRakuten(){
+ cleanup();
  const result=document.getElementById('result');
  const key=document.getElementById('key').value.trim();
  const keyword=document.getElementById('keyword').value.trim()||'フライパン';
  if(!key){result.textContent='アクセスキーを入力してください。';return;}
- result.textContent='通信中...';
- const p=new URLSearchParams({applicationId:'5db6e350-5a71-4843-8d29-cf894bef88df',accessKey:key,affiliateId:'56e8483c.b8c4995b.56e8483d.205a3086',keyword:keyword,hits:'3',page:'1',format:'json',formatVersion:'2'});
- try{
-  const r=await fetch('https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701?'+p.toString(),{method:'GET',headers:{'Accept':'application/json'}});
-  const text=await r.text();
-  result.textContent='HTTP '+r.status+'\n'+text;
- }catch(e){result.textContent='ブラウザ通信エラー\n'+e.message;}
+ result.textContent='楽天APIへ接続中...';
+ callbackName='rakutenCallback_'+Date.now();
+ window[callbackName]=function(data){
+  cleanup();
+  if(data && data.error){
+   result.textContent='楽天APIエラー\n'+JSON.stringify(data,null,2);
+   return;
+  }
+  result.textContent='楽天API接続成功\n\n'+JSON.stringify(data,null,2);
+ };
+ const p=new URLSearchParams({
+  applicationId:'5db6e350-5a71-4843-8d29-cf894bef88df',
+  accessKey:key,
+  affiliateId:'56e8483c.b8c4995b.56e8483d.205a3086',
+  keyword:keyword,
+  hits:'3',
+  page:'1',
+  format:'json',
+  formatVersion:'2',
+  callback:callbackName
+ });
+ const script=document.createElement('script');
+ script.id='rakuten-jsonp';
+ script.src='https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701?'+p.toString();
+ script.onerror=function(){
+  cleanup();
+  result.textContent='楽天API通信エラー\nJSONPリクエストを読み込めませんでした。\n楽天側の許可設定またはAPI応答を確認してください。';
+ };
+ document.head.appendChild(script);
+ setTimeout(function(){
+  if(callbackName){
+   cleanup();
+   result.textContent='楽天APIタイムアウト\n応答がありませんでした。';
+  }
+ },15000);
 }
 </script>
 </body>
