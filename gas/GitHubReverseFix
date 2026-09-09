@@ -76,8 +76,10 @@ function GASマニフェスト権限反映() {
 
   let manifestFound = false;
   const files = project.files.map(function(file) {
+    const isManifest = file.name === 'appsscript' || file.name === 'appsscript.json';
     const copy = {name:file.name,type:file.type,source:typeof file.source === 'string' ? file.source : ''};
-    if (copy.name === 'appsscript.json') {
+    if (isManifest) {
+      copy.name = 'appsscript';
       copy.type = 'JSON';
       copy.source = JSON.stringify(parsed, null, 2);
       manifestFound = true;
@@ -86,7 +88,8 @@ function GASマニフェスト権限反映() {
   });
 
   if (!manifestFound) {
-    throw new Error('GAS APIからappsscript.jsonが取得できません。GASエディタの「プロジェクトの設定」でマニフェストファイルを表示する設定を確認してください。');
+    console.log('GAS APIのファイル一覧にマニフェストが見つからないため、appsscriptとして追加します。');
+    files.push({name:'appsscript',type:'JSON',source:JSON.stringify(parsed, null, 2)});
   }
 
   updateGasProjectContent_(files);
