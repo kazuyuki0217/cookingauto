@@ -1,45 +1,17 @@
 /*************************************************
  * 料理アフィリエイト自動化
  * GitHub → GAS 自動逆同期 修正版・完成版
+ *
+ * 自動同期の本体は GitHubSmartSync に統一。
+ * 既存の syncGitHubToGasAuto 名は互換用に残す。
  *************************************************/
 
 function syncGitHubToGasAuto() {
-  const c = ghConfig_();
   console.log('GitHub → GAS 自動同期開始');
-  const project = getGasProject_();
-  if (!project.files || !project.files.length) throw new Error('現在のGASプロジェクトを取得できません。');
-  const githubFiles = listGitHubGasFiles_(c);
-  if (!githubFiles.length) throw new Error('GitHubのgasフォルダにファイルがありません。');
-  console.log('GitHub gasファイル: ' + githubFiles.map(function(file){return file.name;}).join(', '));
-  const gasServerFiles = project.files.filter(function(file){return file.type === 'SERVER_JS';});
-  if (!gasServerFiles.length) throw new Error('GAS側のSERVER_JSファイルが見つかりません。');
-  let target = null;
-  let targetGasName = null;
-  for (let i = 0; i < gasServerFiles.length; i++) {
-    const gasName = gasServerFiles[i].name;
-    const match = githubFiles.find(function(file){return file.name === gasName;});
-    if (match && !/GitHubSync/i.test(gasName)) { target = match; targetGasName = gasName; break; }
-  }
-  if (!target) {
-    target = githubFiles.find(function(file){return /\.gs$/i.test(file.name) && !/GitHubSync/i.test(file.name);});
-    if (target) {
-      const gasMatch = gasServerFiles.find(function(file){return !/GitHubSync/i.test(file.name);});
-      if (gasMatch) targetGasName = gasMatch.name;
-    }
-  }
-  if (!target || !targetGasName) throw new Error('GitHub側の対象GASファイルを特定できません。');
-  console.log('同期対象: ' + target.name + ' → GAS ' + targetGasName);
-  const githubSource = getGitHubFile_(c, target.path);
-  const files = project.files.map(function(file){return {name:file.name,type:file.type,source:typeof file.source === 'string' ? file.source : ''};});
-  let replaced = false;
-  files.forEach(function(file){if(file.name === targetGasName){file.source = githubSource; replaced = true;}});
-  if (!replaced) throw new Error('GAS側の対象ファイルを置換できませんでした。');
-  updateGasProjectContent_(files);
+  var result = runGitHubSmartSync();
   console.log('GitHub → GAS 自動同期完了');
-  console.log('同期元: ' + target.path);
-  console.log('同期先: GAS ' + targetGasName);
-  console.log('保持したGASファイル数: ' + files.length);
-  return 'GitHub → GAS 自動同期完了: ' + target.path + ' → GAS ' + targetGasName;
+  console.log('結果: ' + result);
+  return result;
 }
 
 function GASマニフェスト権限反映() {
@@ -57,7 +29,7 @@ function GASマニフェスト権限反映() {
   let parsed;
   try { parsed = JSON.parse(githubManifest); } catch (e) { throw new Error('GitHubのappsscriptが正しいJSONではありません。\n' + e.message); }
   const scopes = Array.isArray(parsed.oauthScopes) ? parsed.oauthScopes : [];
-  if (scopes.indexOf('https://www.googleapis.com/auth/script.deployments.readonly') === -1) throw new Error('GitHub側のappsscriptに script.deployments.readonly がありません。');
+  if (scopes.indexOf('https://www.googleapis.com/auth/script.deployments') === -1) throw new Error('GitHub側のappsscriptに script.deployments がありません。');
   let manifestFound = false;
   const files = project.files.map(function(file) {
     const copy = {name:file.name,type:file.type,source:typeof file.source === 'string' ? file.source : ''};
@@ -72,7 +44,7 @@ function GASマニフェスト権限反映() {
   if (!manifestFound) throw new Error('GAS APIからマニフェストが取得できません。GASエディタの「プロジェクトの設定」でマニフェストファイルを表示する設定を確認してください。');
   updateGasProjectContent_(files);
   console.log('appsscript.jsonをGitHub版へ反映しました。');
-  console.log('追加対象: https://www.googleapis.com/auth/script.deployments.readonly');
+  console.log('追加対象: https://www.googleapis.com/auth/script.deployments');
   console.log('次回のGAS実行時に権限承認が必要になる場合があります。');
   return 'GASマニフェスト反映完了';
 }
@@ -118,7 +90,7 @@ function Pinterest旧URLデプロイ最新版更新() {
   const versionNumber = version.versionNumber;
   console.log('新バージョン作成: ' + versionNumber);
   const updateUrl = 'https://script.googleapis.com/v1/projects/' + encodeURIComponent(scriptId) + '/deployments/' + encodeURIComponent(deploymentId);
-  const updateRes = UrlFetchApp.fetch(updateUrl, {method:'put',contentType:'application/json',headers:{Authorization:'Bearer ' + ScriptApp.getOAuthToken()},payload:JSON.stringify({deploymentConfig:{scriptId:scriptId,versionNumber:versionNumber}}),muteHttpExceptions:true});
+  const updateRes = UrlFetchApp.fetch(updateUrl, {method:'put',contentType:'application/json',headers:{Authorization:'Bearer ' + ScriptApp.getOAuthToken()},payload:JSON.stringify({deploymentConfig:{scriptId:scriptId,versionNumber:versionNumber,manifestFileName:'appsscript'}}),muteHttpExceptions:true});
   const updateCode = updateRes.getResponseCode();
   if (updateCode !== 200) throw new Error('Pinterest旧URLデプロイ更新失敗 HTTP ' + updateCode + '\n' + updateRes.getContentText());
   console.log('Pinterest旧URLデプロイを最新版へ更新しました。');
