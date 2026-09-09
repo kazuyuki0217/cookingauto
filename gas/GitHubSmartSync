@@ -114,15 +114,22 @@ function runGitHubSmartSync() {
       console.log('料理本体コードは変更なし。');
     }
 
-    /* 楽天ブラウザ検索HTMLは、コード変更の有無に関係なく必ず確認する */
+    /* 楽天ブラウザ検索HTMLを、GitHubの一覧フィルタに依存せず直接取得 */
     var bridgeName = 'RakutenBrowserBridge';
-    var bridgeGh = githubFiles.find(function(file) {
-      return file.name === bridgeName + '.html' || file.name === bridgeName;
-    });
+    var bridgePath = 'gas/RakutenBrowserBridge.html';
+    var bridgeGh = null;
+    var bridgeSource = '';
+
+    try {
+      bridgeSource = getGitHubFile_(c, bridgePath);
+      bridgeGh = {name: bridgeName + '.html', path: bridgePath};
+      console.log('GitHubの楽天ブラウザHTMLを確認しました。');
+    } catch (bridgeError) {
+      console.log('GitHubに楽天ブラウザHTMLがありません。');
+    }
 
     var changedBridge = false;
-    if (bridgeGh) {
-      var bridgeSource = getGitHubFile_(c, bridgeGh.path);
+    if (bridgeGh && bridgeSource) {
       var bridgeGasIndex = -1;
 
       for (var k = 0; k < files.length; k++) {
@@ -153,8 +160,6 @@ function runGitHubSmartSync() {
         changedBridge = true;
         console.log('楽天ブラウザHTMLをGASへ追加します。');
       }
-    } else {
-      console.log('GitHubに楽天ブラウザHTMLがありません。');
     }
 
     if (!changedMain && !changedBridge) {
