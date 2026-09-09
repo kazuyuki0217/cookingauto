@@ -34,6 +34,7 @@ function runGitHubAutoSync() {
   }
 }
 
+
 function saveSyncLog_(status, message, startedAt, finishedAt) {
   const props = PropertiesService.getScriptProperties();
 
@@ -44,17 +45,37 @@ function saveSyncLog_(status, message, startedAt, finishedAt) {
     finishedAt: finishedAt.toISOString()
   };
 
-  props.setProperty('GITHUB_LAST_SYNC_LOG', JSON.stringify(log));
-  props.setProperty('GITHUB_LAST_SYNC_STATUS', status);
-  props.setProperty('GITHUB_LAST_SYNC_TIME', finishedAt.toISOString());
+  props.setProperty(
+    'GITHUB_LAST_SYNC_LOG',
+    JSON.stringify(log)
+  );
+
+  props.setProperty(
+    'GITHUB_LAST_SYNC_STATUS',
+    status
+  );
+
+  props.setProperty(
+    'GITHUB_LAST_SYNC_TIME',
+    finishedAt.toISOString()
+  );
 }
+
 
 function getGitHubAutoSyncStatus() {
   const props = PropertiesService.getScriptProperties();
 
-  const status = props.getProperty('GITHUB_LAST_SYNC_STATUS');
-  const time = props.getProperty('GITHUB_LAST_SYNC_TIME');
-  const log = props.getProperty('GITHUB_LAST_SYNC_LOG');
+  const status = props.getProperty(
+    'GITHUB_LAST_SYNC_STATUS'
+  );
+
+  const time = props.getProperty(
+    'GITHUB_LAST_SYNC_TIME'
+  );
+
+  const log = props.getProperty(
+    'GITHUB_LAST_SYNC_LOG'
+  );
 
   if (!log) {
     return '同期履歴はまだありません。';
@@ -65,9 +86,20 @@ function getGitHubAutoSyncStatus() {
     '詳細: ' + log;
 }
 
+
+/*************************************************
+ * GitHub自動同期トリガー設定
+ *
+ * 既存の同名トリガーを削除してから
+ * 1時間ごとの自動実行を1つだけ作成する。
+ *************************************************/
+
 function setupGitHubAutoSyncTrigger() {
   ScriptApp.getProjectTriggers().forEach(function(trigger) {
-    if (trigger.getHandlerFunction() === 'runGitHubAutoSync') {
+    if (
+      trigger.getHandlerFunction() ===
+      'runGitHubAutoSync'
+    ) {
       ScriptApp.deleteTrigger(trigger);
     }
   });
