@@ -3,26 +3,37 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>楽天商品検索ブリッジ</title>
-<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:32px auto;padding:0 16px}input,button{font-size:16px;padding:10px;margin:6px 0;width:100%;box-sizing:border-box}pre{white-space:pre-wrap;word-break:break-word;background:#f5f5f5;padding:12px}</style>
+<title>楽天商品検索</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:720px;margin:32px auto;padding:0 16px}
+input,button{font-size:16px;padding:10px;margin:6px 0;width:100%;box-sizing:border-box}
+pre{white-space:pre-wrap;word-break:break-word;background:#f5f5f5;padding:12px}
+.note{font-size:14px;color:#555}
+</style>
 </head>
 <body>
 <h1>楽天商品検索</h1>
-<p>料理自動化本体から楽天商品情報を取得します。</p>
+<p>料理自動化用の楽天商品検索です。</p>
+<p class="note">アクセスキーはこの画面から楽天APIへ直接送信し、GASには保存しません。</p>
+<label>楽天アクセスキー</label>
+<input id="key" type="password" autocomplete="off" placeholder="楽天ウェブサービスのアクセスキー">
+<label>検索キーワード</label>
 <input id="keyword" value="フライパン" placeholder="検索キーワード">
 <button onclick="searchRakuten()">楽天商品を検索</button>
 <pre id="result">未実行</pre>
 <script>
 var callbackName='';
 function cleanup(){
-  if(callbackName){try{delete window[callbackName];}catch(e){window[callbackName]=undefined;}callbackName='';}
+  if(callbackName){try{delete window[callbackName]}catch(e){window[callbackName]=undefined}callbackName='';}
   var old=document.getElementById('rakuten-jsonp');
   if(old)old.remove();
 }
 function searchRakuten(){
   cleanup();
   var out=document.getElementById('result');
-  var keyword=(document.getElementById('keyword').value||'フライパン').trim();
+  var key=(document.getElementById('key').value||'').trim();
+  var keyword=(document.getElementById('keyword').value||'フライパン').trim()||'フライパン';
+  if(!key){out.textContent='楽天アクセスキーを入力してください。';return;}
   out.textContent='楽天APIへ接続中...';
   callbackName='rakutenBridge_'+Date.now();
   window[callbackName]=function(data){
@@ -30,12 +41,12 @@ function searchRakuten(){
     if(!data||!data.Items){
       out.textContent='楽天APIエラー\n'+JSON.stringify(data||{},null,2);return;
     }
-    out.textContent='楽天API成功：'+data.Items.length+'件\nGASへ送信中...';
+    out.textContent='楽天API成功：'+data.Items.length+'件\nGASへ保存中...';
     if(typeof google!=='undefined'&&google.script&&google.script.run){
       google.script.run.withSuccessHandler(function(saved){
-        out.textContent='完了\n'+JSON.stringify(saved,null,2);
+        out.textContent='保存完了\n取得：'+saved.count+'件\n'+JSON.stringify(saved.items,null,2);
       }).withFailureHandler(function(err){
-        out.textContent='GAS送信エラー\n'+(err&&err.message?err.message:err);
+        out.textContent='GAS保存エラー\n'+(err&&err.message?err.message:err);
       }).保存楽天ブラウザ検索結果(JSON.stringify(data));
     }else{
       out.textContent='楽天API成功\n'+JSON.stringify(data,null,2);
@@ -43,9 +54,14 @@ function searchRakuten(){
   };
   var p=new URLSearchParams({
     applicationId:'5db6e350-5a71-4843-8d29-cf894bef88df',
-    accessKey:'__RAKUTEN_ACCESS_KEY__',
+    accessKey:key,
     affiliateId:'56e8483c.b8c4995b.56e8483d.205a3086',
-    keyword:keyword,hits:'10',page:'1',format:'json',formatVersion:'2',callback:callbackName
+    keyword:keyword,
+    hits:'10',
+    page:'1',
+    format:'json',
+    formatVersion:'2',
+    callback:callbackName
   });
   var script=document.createElement('script');
   script.id='rakuten-jsonp';
