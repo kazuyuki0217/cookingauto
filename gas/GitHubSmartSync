@@ -4,7 +4,8 @@
  *
  * ・変更がある場合だけGASを更新
  * ・料理本体コードを安全に同期
- * ・楽天ブラウザ検索HTMLも同期
+ * ・楽天ブラウザ検索HTMLも必ず確認して同期
+ * ・コード.gsに変更がなくてもHTML同期を実行
  *************************************************/
 
 function runGitHubSmartSync() {
@@ -113,26 +114,32 @@ function runGitHubSmartSync() {
       console.log('料理本体コードは変更なし。');
     }
 
-    /* 楽天ブラウザ検索HTMLを同期 */
+    /* 楽天ブラウザ検索HTMLは、コード変更の有無に関係なく必ず確認する */
     var bridgeName = 'RakutenBrowserBridge';
     var bridgeGh = githubFiles.find(function(file) {
       return file.name === bridgeName + '.html' || file.name === bridgeName;
     });
 
-    var bridgeSource = '';
+    var changedBridge = false;
     if (bridgeGh) {
-      bridgeSource = getGitHubFile_(c, bridgeGh.path);
+      var bridgeSource = getGitHubFile_(c, bridgeGh.path);
       var bridgeGasIndex = -1;
+
       for (var k = 0; k < files.length; k++) {
-        if (files[k].name === bridgeName) {
+        if (files[k].name === bridgeName || files[k].name === bridgeName + '.html') {
           bridgeGasIndex = k;
           break;
         }
       }
 
       if (bridgeGasIndex >= 0) {
-        if (files[bridgeGasIndex].source !== bridgeSource) {
-          files[bridgeGasIndex].source = bridgeSource;
+        if (files[bridgeGasIndex].source !== bridgeSource || files[bridgeGasIndex].name !== bridgeName || files[bridgeGasIndex].type !== 'HTML') {
+          files[bridgeGasIndex] = {
+            name: bridgeName,
+            type: 'HTML',
+            source: bridgeSource
+          };
+          changedBridge = true;
           console.log('楽天ブラウザHTMLを更新します。');
         } else {
           console.log('楽天ブラウザHTMLは変更なし。');
@@ -143,13 +150,14 @@ function runGitHubSmartSync() {
           type: 'HTML',
           source: bridgeSource
         });
+        changedBridge = true;
         console.log('楽天ブラウザHTMLをGASへ追加します。');
       }
     } else {
       console.log('GitHubに楽天ブラウザHTMLがありません。');
     }
 
-    if (!changedMain && (!bridgeGh || !bridgeSource)) {
+    if (!changedMain && !changedBridge) {
       console.log('同期対象に変更なし。');
       console.log('================================');
       return '同期不要：GitHubとGASは最新状態です。';
@@ -174,7 +182,8 @@ function runGitHubSmartSync() {
 
     console.log('GitHub → GAS 反映完了');
     console.log('保持ファイル数: ' + files.length);
-    console.log('楽天ブラウザHTML: 同期対象');
+    console.log('料理本体コード: ' + (changedMain ? '更新' : '変更なし'));
+    console.log('楽天ブラウザHTML: ' + (changedBridge ? '更新/追加' : '変更なし'));
     console.log('================================');
     return '同期完了：GitHubの変更をGASへ反映しました。';
 
