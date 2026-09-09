@@ -2,7 +2,9 @@
  * 料理アフィリエイト自動化
  * GitHub ⇄ GAS スマート同期
  *
- * 変更がある場合だけGASを更新する
+ * ・変更がある場合だけGASを更新
+ * ・料理本体コードを安全に同期
+ * ・楽天ブラウザ検索HTMLも同期
  *************************************************/
 
 function runGitHubSmartSync() {
@@ -10,15 +12,15 @@ function runGitHubSmartSync() {
   console.log('GitHubスマート同期 開始');
 
   try {
-    const c = ghConfig_();
-    const project = getGasProject_();
-    const githubFiles = listGitHubGasFiles_(c);
+    var c = ghConfig_();
+    var project = getGasProject_();
+    var githubFiles = listGitHubGasFiles_(c);
 
     if (!githubFiles.length) {
       throw new Error('GitHubのgasフォルダにファイルがありません。');
     }
 
-    const gasServerFiles = project.files.filter(function(file) {
+    var gasServerFiles = project.files.filter(function(file) {
       return file.type === 'SERVER_JS' &&
         !/GitHubSync/i.test(file.name) &&
         !/GitHubReverseFix/i.test(file.name) &&
@@ -26,26 +28,14 @@ function runGitHubSmartSync() {
         !/GitHubSmartSync/i.test(file.name);
     });
 
-    if (!gasServerFiles.length) {
-      throw new Error('同期対象のGASコードファイルが見つかりません。');
-    }
+    var mainNames = ['コード.gs', 'コード', 'Code.gs', 'Code'];
+    var target = null;
+    var gasTarget = null;
 
-    /*
-     * 最重要：バックアップや補助ファイルを先に選ばない。
-     * 料理本体コードを最優先で確定する。
-     */
-    const mainNames = ['コード.gs', 'コード', 'Code.gs', 'Code'];
-    let target = null;
-    let gasTarget = null;
-
-    for (let i = 0; i < mainNames.length; i++) {
-      const name = mainNames[i];
-      const gh = githubFiles.find(function(file) {
-        return file.name === name;
-      });
-      const gas = gasServerFiles.find(function(file) {
-        return file.name === name;
-      });
+    for (var i = 0; i < mainNames.length; i++) {
+      var name = mainNames[i];
+      var gh = githubFiles.find(function(file) { return file.name === name; });
+      var gas = gasServerFiles.find(function(file) { return file.name === name; });
       if (gh && gas) {
         target = gh;
         gasTarget = gas;
@@ -53,13 +43,12 @@ function runGitHubSmartSync() {
       }
     }
 
-    /* GASがCode.gsでもGitHub側が「コード」の場合など、標準名同士を対応 */
     if (!target) {
-      const ghMain = githubFiles.find(function(file) {
+      var ghMain = githubFiles.find(function(file) {
         return mainNames.indexOf(file.name) !== -1;
       });
       if (ghMain) {
-        const gasMain = gasServerFiles.find(function(file) {
+        var gasMain = gasServerFiles.find(function(file) {
           return mainNames.indexOf(file.name) !== -1;
         });
         if (gasMain) {
@@ -69,11 +58,10 @@ function runGitHubSmartSync() {
       }
     }
 
-    /* 標準名が確定できない場合だけ、完全一致を使用する */
     if (!target) {
-      for (let i = 0; i < gasServerFiles.length; i++) {
-        const gasFile = gasServerFiles[i];
-        const match = githubFiles.find(function(file) {
+      for (var j = 0; j < gasServerFiles.length; j++) {
+        var gasFile = gasServerFiles[j];
+        var match = githubFiles.find(function(file) {
           return file.name === gasFile.name &&
             !/バックアップ/i.test(file.name) &&
             !/backup/i.test(file.name) &&
@@ -96,25 +84,15 @@ function runGitHubSmartSync() {
 
     console.log('比較対象: ' + target.path + ' ⇄ GAS ' + gasTarget.name);
 
-    const githubSource = getGitHubFile_(c, target.path);
-    const gasSource = typeof gasTarget.source === 'string' ? gasTarget.source : '';
-    const githubHash = createHash_(githubSource);
-    const gasHash = createHash_(gasSource);
+    var githubSource = getGitHubFile_(c, target.path);
+    var gasSource = typeof gasTarget.source === 'string' ? gasTarget.source : '';
+    var githubHash = createHash_(githubSource);
+    var gasHash = createHash_(gasSource);
 
     console.log('GitHub HASH: ' + githubHash);
     console.log('GAS HASH: ' + gasHash);
 
-    if (githubHash === gasHash) {
-      console.log('変更なし');
-      console.log('GASの更新は実行しません。');
-      console.log('================================');
-      return '同期不要：GitHubとGASは同一です。';
-    }
-
-    console.log('変更を検出しました。');
-    console.log('GitHub → GASを実行します。');
-
-    const files = project.files.map(function(file) {
+    var files = project.files.map(function(file) {
       return {
         name: file.name,
         type: file.type,
@@ -122,23 +100,66 @@ function runGitHubSmartSync() {
       };
     });
 
-    let replaced = false;
-    files.forEach(function(file) {
-      if (file.name === gasTarget.name) {
-        file.source = githubSource;
-        replaced = true;
-      }
-    });
-
-    if (!replaced) {
-      throw new Error('GASコードの置換に失敗しました。');
+    var changedMain = false;
+    if (githubHash !== gasHash) {
+      console.log('料理本体コードの変更を検出しました。');
+      files.forEach(function(file) {
+        if (file.name === gasTarget.name) {
+          file.source = githubSource;
+          changedMain = true;
+        }
+      });
+    } else {
+      console.log('料理本体コードは変更なし。');
     }
 
-    const scriptId = ScriptApp.getScriptId();
-    const url = 'https://script.googleapis.com/v1/projects/' +
+    /* 楽天ブラウザ検索HTMLを同期 */
+    var bridgeName = 'RakutenBrowserBridge';
+    var bridgeGh = githubFiles.find(function(file) {
+      return file.name === bridgeName + '.html' || file.name === bridgeName;
+    });
+
+    var bridgeSource = '';
+    if (bridgeGh) {
+      bridgeSource = getGitHubFile_(c, bridgeGh.path);
+      var bridgeGasIndex = -1;
+      for (var k = 0; k < files.length; k++) {
+        if (files[k].name === bridgeName) {
+          bridgeGasIndex = k;
+          break;
+        }
+      }
+
+      if (bridgeGasIndex >= 0) {
+        if (files[bridgeGasIndex].source !== bridgeSource) {
+          files[bridgeGasIndex].source = bridgeSource;
+          console.log('楽天ブラウザHTMLを更新します。');
+        } else {
+          console.log('楽天ブラウザHTMLは変更なし。');
+        }
+      } else {
+        files.push({
+          name: bridgeName,
+          type: 'HTML',
+          source: bridgeSource
+        });
+        console.log('楽天ブラウザHTMLをGASへ追加します。');
+      }
+    } else {
+      console.log('GitHubに楽天ブラウザHTMLがありません。');
+    }
+
+    if (!changedMain && (!bridgeGh || !bridgeSource)) {
+      console.log('同期対象に変更なし。');
+      console.log('================================');
+      return '同期不要：GitHubとGASは最新状態です。';
+    }
+
+    var scriptId = ScriptApp.getScriptId();
+    var url = 'https://script.googleapis.com/v1/projects/' +
       encodeURIComponent(scriptId) + '/content';
 
-    const res = UrlFetchApp.fetch(url, {
+    var res = UrlFetchApp.fetch(url, {
       method: 'put',
       contentType: 'application/json',
       headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
@@ -146,19 +167,19 @@ function runGitHubSmartSync() {
       muteHttpExceptions: true
     });
 
-    const code = res.getResponseCode();
+    var code = res.getResponseCode();
     if (code !== 200) {
       throw new Error('GAS更新失敗 HTTP ' + code + '\n' + res.getContentText());
     }
 
     console.log('GitHub → GAS 反映完了');
-    console.log('変更対象: ' + gasTarget.name);
     console.log('保持ファイル数: ' + files.length);
+    console.log('楽天ブラウザHTML: 同期対象');
     console.log('================================');
     return '同期完了：GitHubの変更をGASへ反映しました。';
 
   } catch (error) {
-    const message = error && error.message ? error.message : String(error);
+    var message = error && error.message ? error.message : String(error);
     console.log('GitHubスマート同期 エラー');
     console.log(message);
     console.log('================================');
@@ -167,13 +188,13 @@ function runGitHubSmartSync() {
 }
 
 function createHash_(text) {
-  const bytes = Utilities.computeDigest(
+  var bytes = Utilities.computeDigest(
     Utilities.DigestAlgorithm.SHA_256,
     text,
     Utilities.Charset.UTF_8
   );
   return bytes.map(function(byte) {
-    const value = byte < 0 ? byte + 256 : byte;
+    var value = byte < 0 ? byte + 256 : byte;
     return value.toString(16).padStart(2, '0');
   }).join('');
 }
