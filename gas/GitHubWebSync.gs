@@ -7,9 +7,8 @@
  * GAS側で実行してGitHub → GAS同期を行う。
  *
  * 重要:
- * GH_APIはこのファイルでは宣言しない。
- * GitHubSmartSync / GitHubReverseFixの評価時に
- * 重複宣言が発生しないよう、実行用ローカル名を使う。
+ * GitHubSync.gs内のGH_API宣言と、
+ * この実行環境で設定するGH_APIが重複しないようにする。
  *************************************************/
 
 function githubWebSync() {
@@ -44,9 +43,17 @@ function githubWebSync_execute_(smartSyncSource) {
   var githubSyncSource = githubWebSync_fetchFile_('gas/GitHubSync');
 
   /*
-   * GH_APIの重複宣言対策。
-   * GitHubReverseFixはGH_APIを参照するため、グローバル値として提供する。
-   * const / let / var による再宣言は一切行わない。
+   * GitHubSync.gsには const GH_API が存在するため、
+   * eval対象へその宣言を持ち込むと既存の評価環境と衝突する。
+   * 宣言だけを除去し、実行環境側で値を提供する。
+   */
+  githubSyncSource = githubSyncSource.replace(
+    /(^|\n)\s*const\s+GH_API\s*=\s*['\"]https:\/\/api\.github\.com['\"]\s*;?/,
+    '$1'
+  );
+
+  /*
+   * GH_APIは再宣言せず、既存グローバルへ値だけ設定する。
    */
   var sources = [];
   sources.push(
@@ -56,10 +63,6 @@ function githubWebSync_execute_(smartSyncSource) {
   sources.push(reverseFixSource);
   sources.push(smartSyncSource);
 
-  /*
-   * 既存のGAS側WebSyncにGH_API宣言が残っていても、
-   * 今回の評価コードでは新しい宣言を行わない。
-   */
   var combined = sources.join('\n\n');
 
   eval(combined);
