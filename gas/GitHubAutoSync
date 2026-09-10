@@ -19,6 +19,21 @@ function runGitHubAutoSync() {
 
     console.log('同期結果: ' + result);
 
+    // Pinterest本命ボードIDをUIなしで自動設定
+    try {
+      if (typeof Pinterest本命ボード自動設定 === 'function') {
+        var boardId = Pinterest本命ボード自動設定();
+        console.log('Pinterest本命ボードID自動設定: ' + boardId);
+      } else {
+        console.log('Pinterest本命ボード設定関数はまだGAS側に反映されていません。');
+      }
+    } catch (boardError) {
+      var boardMessage = boardError && boardError.message
+        ? boardError.message
+        : String(boardError);
+      console.log('Pinterest本命ボード設定エラー: ' + boardMessage);
+    }
+
     var oauthFixResult = '';
     try {
       oauthFixResult = KAZU_APPLY_PINTEREST_OAUTH_STATE_FIX_();
@@ -50,6 +65,7 @@ function runGitHubAutoSync() {
 
     var finalMessage = result +
       (oauthFixResult ? '\n' + oauthFixResult : '') +
+      '\nPinterest本命ボードID: ' + (PropertiesService.getScriptProperties().getProperty('PINTEREST_BOARD_ID') || '未設定') +
       (deploymentResult ? '\n' + deploymentResult : '');
 
     saveSyncLog_('SUCCESS', finalMessage, startedAt, new Date());
