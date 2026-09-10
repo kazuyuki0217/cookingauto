@@ -125,7 +125,11 @@ function KAZU_PINTEREST_STATE_() {
   return state;
 }
 function KAZU_PINTEREST_AUTH_URL_() {
-  var state = KAZU_PINTEREST_STATE_();
+  var props = PropertiesService.getScriptProperties();
+  var state = props.getProperty('PINTEREST_OAUTH_STATE');
+  if (!state) {
+    state = KAZU_PINTEREST_STATE_();
+  }
   return 'https://www.pinterest.com/oauth/?' + [
     'client_id=' + encodeURIComponent(KAZU_PINTEREST_APP_ID_()),
     'redirect_uri=' + encodeURIComponent(KAZU_PINTEREST_REDIRECT_URI_()),
