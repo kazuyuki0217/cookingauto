@@ -3,12 +3,9 @@
  * 既存のコード.gsは変更しません。
  */
 function PinterestSandboxアクセストークン保存() {
-  var ui = SpreadsheetApp.getUi();
-  var result = ui.prompt('Pinterest Sandboxアクセストークン', '作成したSandboxトークンを入力してください。', ui.ButtonSet.OK_CANCEL);
-  if (result.getSelectedButton() !== ui.Button.OK) return;
-  var token = result.getResponseText().trim();
-  if (!token) throw new Error('Sandboxトークンが空です。');
-  PropertiesService.getScriptProperties().setProperty('PINTEREST_SANDBOX_ACCESS_TOKEN', token);
+  var token = Browser.inputBox('Pinterest Sandboxアクセストークン', '作成したSandboxトークンを入力してください。', Browser.Buttons.OK_CANCEL);
+  if (token === 'cancel' || !token || token.trim() === '') throw new Error('Sandboxトークンが空です。');
+  PropertiesService.getScriptProperties().setProperty('PINTEREST_SANDBOX_ACCESS_TOKEN', token.trim());
   Logger.log('Sandboxトークンを保存しました。');
 }
 
