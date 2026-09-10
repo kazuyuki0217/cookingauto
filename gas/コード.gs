@@ -1,0 +1,367 @@
+/*************************************************
+ * 料理アフィリエイト自動化
+ * Code.gs 完成版
+ *
+ * 保存安定版＋Pinterest OAuth対応
+ * ・トップレベル const / let 不使用
+ * ・内部関数は KAZU_ で統一
+ * ・楽天IDは正しい現在値を使用
+ * ・Access KeyはScript Propertiesで管理
+ * ・Pinterest OAuth認証＋自動トークン更新
+ *
+ * 主な機能
+ * ・楽天商品検索
+ * ・楽天アフィリエイトURL取得
+ * ・Pinterest接続
+ * ・Pinterestボード取得
+ * ・Pinterest Pin投稿
+ * ・1料理3パターン投稿
+ * ・Pinterest OAuth認証
+ * ・Pinterestアクセストークン自動更新
+ * ・設定状況確認
+ * ・GASコード取得
+ * ・全体接続テスト
+ * ・楽天ブラウザAPI橋渡し
+ *************************************************/
+
+function KAZU_RAKUTEN_APP_ID_() { return '5db6e350-5a71-4843-8d29-cf894bef88df'; }
+function KAZU_RAKUTEN_AFFILIATE_ID_() { return '56e8483c.b8c4995b.56e8483d.205a3086'; }
+function KAZU_RAKUTEN_API_() { return 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'; }
+function KAZU_PINTEREST_API_() { return 'https://api.pinterest.com/v5'; }
+function KAZU_PINTEREST_APP_ID_() { return '1605684'; }
+function KAZU_PINTEREST_REDIRECT_URI_() { return 'https://script.google.com/macros/s/AKfycbw5WwonV2fI6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec'; }
+function KAZU_PINTEREST_SCOPES_() { return 'boards:read,boards:write,pins:read,pins:write'; }
+function KAZU_PROP_(name) { return PropertiesService.getScriptProperties().getProperty(name); }
+function KAZU_RAKUTEN_KEY_() {
+  var key = KAZU_PROP_('RAKUTEN_ACCESS_KEY');
+  if (!key) throw new Error('楽天アクセスキーが未登録です。「セーブ楽天アクセスキー」を実行してください。');
+  return key;
+}
+function セーブ楽天アクセスキー() {
+  var ui = SpreadsheetApp.getUi();
+  var result = ui.prompt('楽天アクセスキー','楽天ウェブサービスのアクセスキーを入力してください。',ui.ButtonSet.OK_CANCEL);
+  if (result.getSelectedButton() !== ui.Button.OK) return;
+  var key = result.getResponseText().trim();
+  if (!key) throw new Error('楽天アクセスキーが空です。');
+  PropertiesService.getScriptProperties().setProperty('RAKUTEN_ACCESS_KEY',key);
+  Logger.log('楽天アクセスキー保存完了');
+}
+function KAZU_RAKUTEN_SEARCH_(keyword,hits) {
+  keyword = keyword || 'フライパン';
+  hits = hits || 10;
+  var key = KAZU_RAKUTEN_KEY_();
+  var params = [
+    'applicationId=' + encodeURIComponent(KAZU_RAKUTEN_APP_ID_()),
+    'accessKey=' + encodeURIComponent(key),
+    'affiliateId=' + encodeURIComponent(KAZU_RAKUTEN_AFFILIATE_ID_()),
+    'keyword=' + encodeURIComponent(keyword),
+    'hits=' + encodeURIComponent(hits),
+    'page=1','format=json','formatVersion=2'
+  ];
+  var url = KAZU_RAKUTEN_API_() + '?' + params.join('&');
+  Logger.log('楽天API検索開始');
+  var response = UrlFetchApp.fetch(url, {
+    method: 'get', muteHttpExceptions: true, followRedirects: true,
+    headers: {
+      'Accept': 'application/json',
+      'Origin': 'https://tansinfuninkazu.hatenablog.com',
+      'Referer': 'https://tansinfuninkazu.hatenablog.com/'
+    }
+  });
+  var code = response.getResponseCode();
+  var body = response.getContentText();
+  Logger.log('楽天API HTTP: ' + code);
+  if (code < 200 || code >= 300) throw new Error('楽天API HTTP ' + code + '\n' + body);
+  var data;
+  try { data = JSON.parse(body); } catch (e) { throw new Error('楽天API JSON解析エラー\n' + body); }
+  if (!data.items || data.items.length === 0) throw new Error('楽天商品が見つかりません。');
+  return data;
+}
+function 楽天商品検索(keyword) {
+  var data = KAZU_RAKUTEN_SEARCH_(keyword,10);
+  return data.items.map(function(item) {
+    return {
+      商品名:item.itemName || '', 価格:item.itemPrice || '', 商品URL:item.itemUrl || '',
+      アフィリエイトURL:item.affiliateUrl || '', ショップ名:item.shopName || '',
+      商品画像:item.mediumImageUrls && item.mediumImageUrls.length ? item.mediumImageUrls[0].imageUrl : '',
+      レビュー件数:item.reviewCount || 0, レビュー平均:item.reviewAverage || 0
+    };
+  });
+}
+function テスト楽天() {
+  var results = 楽天商品検索('フライパン');
+  Logger.log('楽天商品検索成功：' + results.length + '件');
+  if (results.length > 0) {
+    Logger.log('商品名：' + results[0].商品名);
+    Logger.log('価格：' + results[0].価格);
+    Logger.log('アフィリエイトURL：' + results[0].アフィリエイトURL);
+  }
+  return results;
+}
+function 楽天おすすめ商品(keyword) {
+  var results = 楽天商品検索(keyword);
+  if (!results || results.length === 0) throw new Error('楽天商品が見つかりません。');
+  return results[0];
+}
+
+/* ================= Pinterest OAuth ================= */
+function KAZU_PINTEREST_CLIENT_SECRET_() {
+  var secret = KAZU_PROP_('PINTEREST_CLIENT_SECRET');
+  if (!secret) throw new Error('Pinterest Client Secretが未登録です。Script Propertiesに PINTEREST_CLIENT_SECRET を登録してください。');
+  return secret;
+}
+function PinterestClientSecret保存() {
+  var ui=SpreadsheetApp.getUi();
+  var result=ui.prompt('Pinterest Client Secret','Pinterest DevelopersのClient Secretを入力してください。',ui.ButtonSet.OK_CANCEL);
+  if(result.getSelectedButton()!==ui.Button.OK)return;
+  var secret=result.getResponseText().trim();
+  if(!secret)throw new Error('Pinterest Client Secretが空です。');
+  PropertiesService.getScriptProperties().setProperty('PINTEREST_CLIENT_SECRET',secret);
+  Logger.log('Pinterest Client Secret保存完了');
+}
+function KAZU_PINTEREST_STATE_() {
+  var state = Utilities.getUuid().replace(/-/g,'');
+  PropertiesService.getScriptProperties().setProperty('PINTEREST_OAUTH_STATE',state);
+  return state;
+}
+function KAZU_PINTEREST_AUTH_URL_() {
+  var props = PropertiesService.getScriptProperties();
+  var state = props.getProperty('PINTEREST_OAUTH_STATE');
+  if (!state) {
+    state = KAZU_PINTEREST_STATE_();
+  }
+  return 'https://www.pinterest.com/oauth/?' + [
+    'client_id=' + encodeURIComponent(KAZU_PINTEREST_APP_ID_()),
+    'redirect_uri=' + encodeURIComponent(KAZU_PINTEREST_REDIRECT_URI_()),
+    'response_type=code',
+    'scope=' + encodeURIComponent(KAZU_PINTEREST_SCOPES_()),
+    'state=' + encodeURIComponent(state)
+  ].join('&');
+}
+function PinterestOAuth開始URL() {
+  var url = KAZU_PINTEREST_AUTH_URL_();
+  Logger.log(url);
+  return url;
+}
+function PinterestOAuth開始() {
+  var url = KAZU_PINTEREST_AUTH_URL_();
+  return HtmlService.createHtmlOutput('<p>下のボタンからPinterest認証を開始してください。</p><p><a href="' + url.replace(/&/g,'&amp;') + '" target="_top">Pinterestで認証する</a></p>');
+}
+function KAZU_PINTEREST_SAVE_TOKEN_(data) {
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('PINTEREST_ACCESS_TOKEN',data.access_token || '');
+  if (data.refresh_token) props.setProperty('PINTEREST_REFRESH_TOKEN',data.refresh_token);
+  if (data.expires_in) props.setProperty('PINTEREST_ACCESS_TOKEN_EXPIRES_AT',String(Date.now() + Number(data.expires_in) * 1000));
+  if (data.scope) props.setProperty('PINTEREST_GRANTED_SCOPES',String(data.scope));
+  props.setProperty('PINTEREST_TOKEN_TYPE',data.token_type || 'bearer');
+}
+function KAZU_PINTEREST_EXCHANGE_CODE_(code) {
+  var auth = Utilities.base64Encode(KAZU_PINTEREST_APP_ID_() + ':' + KAZU_PINTEREST_CLIENT_SECRET_());
+  var response = UrlFetchApp.fetch(KAZU_PINTEREST_API_() + '/oauth/token', {
+    method:'post', muteHttpExceptions:true, contentType:'application/x-www-form-urlencoded',
+    headers:{'Authorization':'Basic ' + auth},
+    payload:{grant_type:'authorization_code',code:code,redirect_uri:KAZU_PINTEREST_REDIRECT_URI_()}
+  });
+  var codeNo = response.getResponseCode(), body = response.getContentText();
+  Logger.log('Pinterest OAuth token HTTP: ' + codeNo);
+  if (codeNo < 200 || codeNo >= 300) throw new Error('Pinterest OAuth token HTTP ' + codeNo + '\n' + body);
+  var data = JSON.parse(body);
+  if (!data.access_token) throw new Error('Pinterest OAuthアクセストークンを取得できませんでした。\n' + body);
+  KAZU_PINTEREST_SAVE_TOKEN_(data);
+  return data;
+}
+function KAZU_PINTEREST_REFRESH_TOKEN_() {
+  var refresh = KAZU_PROP_('PINTEREST_REFRESH_TOKEN');
+  if (!refresh) throw new Error('Pinterest refresh tokenが未登録です。OAuth認証をやり直してください。');
+  var auth = Utilities.base64Encode(KAZU_PINTEREST_APP_ID_() + ':' + KAZU_PINTEREST_CLIENT_SECRET_());
+  var response = UrlFetchApp.fetch(KAZU_PINTEREST_API_() + '/oauth/token', {
+    method:'post', muteHttpExceptions:true, contentType:'application/x-www-form-urlencoded',
+    headers:{'Authorization':'Basic ' + auth},
+    payload:{grant_type:'refresh_token',refresh_token:refresh}
+  });
+  var codeNo=response.getResponseCode(), body=response.getContentText();
+  Logger.log('Pinterest refresh HTTP: ' + codeNo);
+  if (codeNo < 200 || codeNo >= 300) throw new Error('Pinterest refresh HTTP ' + codeNo + '\n' + body);
+  var data=JSON.parse(body);
+  if (!data.access_token) throw new Error('Pinterestアクセストークン更新に失敗しました。\n' + body);
+  KAZU_PINTEREST_SAVE_TOKEN_(data);
+  return data.access_token;
+}
+function KAZU_PIN_TOKEN_() {
+  var token = KAZU_PROP_('PINTEREST_ACCESS_TOKEN');
+  if (!token) throw new Error('Pinterestアクセストークンが未登録です。「Pinterest OAuth認証」を実行してください。');
+  var expiresAt = Number(KAZU_PROP_('PINTEREST_ACCESS_TOKEN_EXPIRES_AT') || 0);
+  if (expiresAt && expiresAt < Date.now() + 5 * 60 * 1000 && KAZU_PROP_('PINTEREST_REFRESH_TOKEN')) token = KAZU_PINTEREST_REFRESH_TOKEN_();
+  return token;
+}
+function PinterestOAuth認証() { return PinterestOAuth開始URL(); }
+function PinterestOAuth状態確認() {
+  var props=PropertiesService.getScriptProperties().getProperties();
+  return {accessToken:props.PINTEREST_ACCESS_TOKEN?'登録済み':'未登録',refreshToken:props.PINTEREST_REFRESH_TOKEN?'登録済み':'未登録',expiresAt:props.PINTEREST_ACCESS_TOKEN_EXPIRES_AT || '未登録',scopes:props.PINTEREST_GRANTED_SCOPES || '未登録'};
+}
+function Pinterestアクセストークン保存() {
+  var ui = SpreadsheetApp.getUi();
+  var result = ui.prompt('Pinterestアクセストークン','既存のPinterest APIアクセストークンを入力してください。通常は「Pinterest OAuth認証」を使用してください。',ui.ButtonSet.OK_CANCEL);
+  if (result.getSelectedButton() !== ui.Button.OK) return;
+  var token = result.getResponseText().trim();
+  if (!token) throw new Error('Pinterestアクセストークンが空です。');
+  PropertiesService.getScriptProperties().setProperty('PINTEREST_ACCESS_TOKEN',token);
+  Logger.log('Pinterestアクセストークン保存完了');
+}
+function KAZU_PIN_GET_(endpoint) {
+  var response = UrlFetchApp.fetch(KAZU_PINTEREST_API_() + endpoint, { method:'get', muteHttpExceptions:true, headers:{'Authorization':'Bearer ' + KAZU_PIN_TOKEN_(),'Content-Type':'application/json'} });
+  var code=response.getResponseCode(), body=response.getContentText();
+  Logger.log('Pinterest GET HTTP: ' + code);
+  if (code<200 || code>=300) throw new Error('Pinterest GET HTTP ' + code + '\n' + body);
+  return JSON.parse(body);
+}
+function KAZU_PIN_POST_(endpoint,payload) {
+  var response = UrlFetchApp.fetch(KAZU_PINTEREST_API_() + endpoint, { method:'post', muteHttpExceptions:true, contentType:'application/json', headers:{'Authorization':'Bearer ' + KAZU_PIN_TOKEN_(),'Content-Type':'application/json'}, payload:JSON.stringify(payload) });
+  var code=response.getResponseCode(), body=response.getContentText();
+  Logger.log('Pinterest POST HTTP: ' + code);
+  if (code<200 || code>=300) throw new Error('Pinterest POST HTTP ' + code + '\n' + body);
+  return body ? JSON.parse(body) : {};
+}
+function Pinterestボード一覧() {
+  var data=KAZU_PIN_GET_('/boards?page_size=100');
+  if (!data.items) throw new Error('Pinterestボードを取得できませんでした。');
+  var boards=data.items.map(function(board){return {id:board.id||'',name:board.name||'',description:board.description||'',privacy:board.privacy||''};});
+  boards.forEach(function(board){Logger.log('BOARD ID: ' + board.id + ' / ' + board.name);});
+  return boards;
+}
+function PinterestボードID保存() {
+  var boards=Pinterestボード一覧();
+  if (!boards || boards.length===0) throw new Error('Pinterestボードがありません。');
+  var text='Pinterestボード一覧\n\n';
+  boards.forEach(function(board,index){text += (index+1)+'. '+board.name+'\nID: '+board.id+'\n\n';});
+  var ui=SpreadsheetApp.getUi();
+  var result=ui.prompt(text+'\n使用するボードIDを入力してください。','',ui.ButtonSet.OK_CANCEL);
+  if (result.getSelectedButton()!==ui.Button.OK) return;
+  var boardId=result.getResponseText().trim();
+  if (!boardId) throw new Error('ボードIDが空です。');
+  PropertiesService.getScriptProperties().setProperty('PINTEREST_BOARD_ID',boardId);
+  Logger.log('PinterestボードID保存完了');
+}
+function KAZU_PIN_BOARD_() {
+  var boardId=KAZU_PROP_('PINTEREST_BOARD_ID');
+  if (!boardId) throw new Error('PinterestボードIDが未登録です。');
+  return boardId;
+}
+function Pinterest接続テスト() {
+  var data=KAZU_PIN_GET_('/boards?page_size=10');
+  Logger.log('Pinterest API接続成功');
+  return data;
+}
+function PinterestPin作成(imageUrl,title,description,link) {
+  if (!imageUrl) throw new Error('画像URLがありません。');
+  if (!title) throw new Error('Pinterestタイトルがありません。');
+  if (!link) throw new Error('ブログURLがありません。');
+  var payload={board_id:KAZU_PIN_BOARD_(),title:title,description:description||'',link:link,media_source:{source_type:'image_url',url:imageUrl,is_standard:true}};
+  var result=KAZU_PIN_POST_('/pins',payload);
+  Logger.log('Pinterest Pin作成成功');
+  return result;
+}
+function Pinterestテスト投稿() {
+  return PinterestPin作成('ここに公開画像URL','仕事終わり15分で作る簡単料理','一人暮らし・単身赴任でも作りやすい簡単料理。実際に作った料理と材料、作り方をブログで紹介しています。','https://tansinfuninkazu.hatenablog.com/');
+}
+function Pinterest3パターン投稿(imageUrl,blogUrl,dishName) {
+  var patterns=[
+    {title:dishName+'｜仕事終わり15分で作れる簡単ごはん',description:'仕事終わりでも無理なく作れる'+dishName+'。一人暮らし・単身赴任の夕飯にもおすすめ。'},
+    {title:dishName+'｜疲れて帰った日の簡単晩ごはん',description:'疲れて帰った日に料理するのは大変。'+dishName+'なら短時間で作れて、ご飯もしっかり食べられます。'},
+    {title:dishName+'｜節約しながら作れる一人暮らしごはん',description:'節約しながら、ちゃんと美味しい。'+dishName+'の材料と作り方をブログで紹介しています。'}
+  ];
+  var results=[];
+  patterns.forEach(function(pattern){results.push(PinterestPin作成(imageUrl,pattern.title,pattern.description,blogUrl));Utilities.sleep(1500);});
+  Logger.log('Pinterest 3パターン投稿完了');
+  return results;
+}
+function 設定状況確認() {
+  var props=PropertiesService.getScriptProperties().getProperties();
+  var result={楽天ApplicationID:KAZU_RAKUTEN_APP_ID_(),楽天AffiliateID:KAZU_RAKUTEN_AFFILIATE_ID_(),楽天アクセスキー:props.RAKUTEN_ACCESS_KEY?'登録済み':'未登録',PinterestClientSecret:props.PINTEREST_CLIENT_SECRET?'登録済み':'未登録',Pinterestアクセストークン:props.PINTEREST_ACCESS_TOKEN?'登録済み':'未登録',PinterestRefreshToken:props.PINTEREST_REFRESH_TOKEN?'登録済み':'未登録',PinterestOAuthScopes:props.PINTEREST_GRANTED_SCOPES||'未登録',PinterestボードID:props.PINTEREST_BOARD_ID?props.PINTEREST_BOARD_ID:'未登録'};
+  Logger.log(JSON.stringify(result,null,2));
+  return result;
+}
+function getMyProjectSource() {
+  var scriptId=ScriptApp.getScriptId(), token=ScriptApp.getOAuthToken();
+  var url='https://script.googleapis.com/v1/projects/'+encodeURIComponent(scriptId)+'/content';
+  var response=UrlFetchApp.fetch(url,{method:'get',headers:{'Authorization':'Bearer '+token},muteHttpExceptions:true});
+  var result=response.getContentText();
+  DriveApp.createFile('料理自動化_現在コード取得.json',result,MimeType.PLAIN_TEXT);
+  Logger.log(result); return result;
+}
+function 自分のコードを取得(){return getMyProjectSource();}
+function KAZU_保存確認(){Logger.log('Code.gs 完成版 保存OK');return 'OK';}
+function 全体接続テスト(){
+  Logger.log('========== 全体テスト開始 ==========');
+  Logger.log('【1】楽天API'); var rakuten=テスト楽天(); Logger.log('楽天OK：'+rakuten.length+'件');
+  Logger.log('【2】Pinterest API'); var pinterest=Pinterest接続テスト(); Logger.log('Pinterest OK');
+  Logger.log('========== 全体テスト完了 ==========');
+  return {rakuten:rakuten,pinterest:pinterest};
+}
+
+function doGet(e) {
+  var action = e && e.parameter ? e.parameter.action : '';
+  var hasOAuthResponse = e && e.parameter && (e.parameter.code || e.parameter.error);
+  if (action === 'pinterest_oauth_start') {
+    var authUrl = KAZU_PINTEREST_AUTH_URL_();
+    return HtmlService.createHtmlOutput('<script>window.top.location.href=' + JSON.stringify(authUrl) + ';</script><p>Pinterest認証ページへ移動しています。</p>');
+  }
+  if (action === 'pinterest_oauth_callback' || hasOAuthResponse) return KAZU_PINTEREST_OAUTH_CALLBACK_(e);
+  return HtmlService.createHtmlOutputFromFile('RakutenBrowserBridge')
+    .setTitle('楽天商品検索')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+function KAZU_PINTEREST_OAUTH_CALLBACK_(e) {
+  var params=e && e.parameter ? e.parameter : {};
+  if (params.error) return HtmlService.createHtmlOutput('<h3>Pinterest認証がキャンセルされました</h3><p>' + String(params.error).replace(/[<>]/g,'') + '</p>');
+  var expected=KAZU_PROP_('PINTEREST_OAUTH_STATE');
+  if (!params.state || !expected || params.state !== expected) throw new Error('Pinterest OAuth stateが一致しません。認証を最初からやり直してください。');
+  PropertiesService.getScriptProperties().deleteProperty('PINTEREST_OAUTH_STATE');
+  if (!params.code) throw new Error('Pinterest OAuth認証コードがありません。');
+  var data=KAZU_PINTEREST_EXCHANGE_CODE_(params.code);
+  var scopes=data.scope || KAZU_PINTEREST_SCOPES_();
+  return HtmlService.createHtmlOutput('<h2>Pinterest認証成功</h2><p>アクセストークンと更新用トークンを安全に保存しました。</p><p>許可された権限：' + String(scopes).replace(/[<>]/g,'') + '</p><p>この画面を閉じてください。</p>');
+}
+function 楽天ブラウザ用アクセスキー取得() {
+  return KAZU_RAKUTEN_KEY_();
+}
+function 保存楽天ブラウザ検索結果(jsonText) {
+  if (!jsonText) throw new Error('楽天検索結果が空です。');
+  var data;
+  try { data = JSON.parse(jsonText); } catch (e) { throw new Error('楽天検索結果JSON解析エラー'); }
+  var items = data && data.Items ? data.Items : [];
+  if (!items.length) throw new Error('楽天商品が含まれていません。');
+  var normalized = items.map(function(item) {
+    var info = item.Item || item.item || {};
+    return {商品名:info.itemName||'',価格:info.itemPrice||0,商品URL:info.itemUrl||'',アフィリエイトURL:info.affiliateUrl||'',ショップ名:info.shopName||'',商品画像:info.mediumImageUrls&&info.mediumImageUrls.length?info.mediumImageUrls[0].imageUrl:'',レビュー件数:info.reviewCount||0,レビュー平均:info.reviewAverage||0};
+  });
+  PropertiesService.getScriptProperties().setProperty('RAKUTEN_BROWSER_RESULTS',JSON.stringify({updatedAt:new Date().toISOString(),items:normalized}));
+  Logger.log('楽天ブラウザ検索結果保存：'+normalized.length+'件');
+  return {success:true,count:normalized.length,items:normalized};
+}
+function 楽天ブラウザ検索結果取得() {
+  var text=PropertiesService.getScriptProperties().getProperty('RAKUTEN_BROWSER_RESULTS');
+  if(!text)return {success:false,count:0,items:[]};
+  try{return JSON.parse(text);}catch(e){return {success:false,count:0,items:[]};}
+}
+
+/* ================= Pinterest OAuth 診断 ================= */
+function PinterestOAuth診断ログ() {
+  var props = PropertiesService.getScriptProperties().getProperties();
+  var result = {
+    appId: KAZU_PINTEREST_APP_ID_(),
+    requestedScopes: KAZU_PINTEREST_SCOPES_(),
+    grantedScopes: props.PINTEREST_GRANTED_SCOPES || '未登録',
+    accessToken: props.PINTEREST_ACCESS_TOKEN ? '登録済み' : '未登録',
+    refreshToken: props.PINTEREST_REFRESH_TOKEN ? '登録済み' : '未登録',
+    expiresAt: props.PINTEREST_ACCESS_TOKEN_EXPIRES_AT || '未登録',
+    boardId: props.PINTEREST_BOARD_ID || '未登録',
+    redirectUri: KAZU_PINTEREST_REDIRECT_URI_()
+  };
+  Logger.log('========== Pinterest OAuth 診断 ==========');
+  Logger.log(JSON.stringify(result, null, 2));
+  if (result.grantedScopes === '未登録') Logger.log('判定: OAuth後のscope情報が保存されていません。再認証が必要です。');
+  else if (String(result.grantedScopes).indexOf('pins:write') === -1) Logger.log('判定: pins:write がありません。Pin投稿401の主原因候補です。');
+  else Logger.log('判定: pins:write は保存されています。401は別原因を調査します。');
+  return result;
+}
