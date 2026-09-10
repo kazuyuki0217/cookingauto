@@ -8,6 +8,10 @@
  * ・料理名から料理との親和性が高い商品を自動選定
  * ・ユーザー固有のaffiliateUrlを記事HTMLへ組み込む
  * ・既存のコード.gs / RakutenAffiliate.gsを変更しない
+ *
+ * 重要
+ * ・既存の楽天検索関数「楽天商品検索」を利用する
+ * ・存在しない RAKUTEN2_search には依存しない
  *************************************************/
 
 function KAZU_ARTICLE_ESCAPE_(value) {
@@ -35,10 +39,10 @@ function KAZU_ARTICLE_PRODUCT_KEYWORDS_(dishName) {
 }
 
 function KAZU_ARTICLE_PRODUCT_SCORE_(item, dishName) {
-  var name = String(item.itemName || '').toLowerCase();
+  var name = String(item.商品名 || '').toLowerCase();
   var dish = String(dishName || '').toLowerCase();
-  var average = Number(item.reviewAverage || 0);
-  var count = Number(item.reviewCount || 0);
+  var average = Number(item.レビュー平均 || 0);
+  var count = Number(item.レビュー件数 || 0);
   var score = average * 20 + Math.log(count + 1) * 8;
 
   if (name.indexOf('フライパン') !== -1) score += 25;
@@ -61,24 +65,24 @@ function KAZU_ARTICLE_PICK_PRODUCTS_(dishName, limit) {
   var map = {};
 
   keywords.forEach(function(keyword) {
-    var result = RAKUTEN2_search(keyword);
-    var items = result && result.items ? result.items : [];
+    // 既存のコード.gsにある正式な楽天商品検索関数を使用する。
+    var items = 楽天商品検索(keyword) || [];
 
     items.forEach(function(item) {
-      var url = String(item.affiliateUrl || item.itemUrl || '').trim();
+      var url = String(item.アフィリエイトURL || '').trim();
       if (!url) return;
 
-      var key = String(item.itemCode || url);
+      var key = String(item.商品URL || url);
       if (!map[key]) {
         map[key] = {
-          itemName: item.itemName || '',
-          itemPrice: item.itemPrice || '',
-          itemUrl: item.itemUrl || '',
+          itemName: item.商品名 || '',
+          itemPrice: item.価格 || '',
+          itemUrl: item.商品URL || '',
           affiliateUrl: url,
-          shopName: item.shopName || '',
-          imageUrl: item.imageUrl || '',
-          reviewCount: Number(item.reviewCount || 0),
-          reviewAverage: Number(item.reviewAverage || 0),
+          shopName: item.ショップ名 || '',
+          imageUrl: item.商品画像 || '',
+          reviewCount: Number(item.レビュー件数 || 0),
+          reviewAverage: Number(item.レビュー平均 || 0),
           score: KAZU_ARTICLE_PRODUCT_SCORE_(item, dishName)
         };
       }
@@ -115,6 +119,9 @@ function KAZU_ARTICLE_PRODUCTS_HTML_(products) {
 
   products.forEach(function(product, index) {
     html += '<div class="rakuten-affiliate-item">\n';
+    if (product.imageUrl) {
+      html += '<p><img src="' + KAZU_ARTICLE_ESCAPE_(product.imageUrl) + '" alt="' + KAZU_ARTICLE_ESCAPE_(product.itemName) + '" loading="lazy"></p>\n';
+    }
     html += '<p><strong>' + KAZU_ARTICLE_ESCAPE_(product.itemName) + '</strong></p>\n';
     if (product.itemPrice) {
       html += '<p>価格：' + KAZU_ARTICLE_ESCAPE_(String(product.itemPrice)) + '円</p>\n';
@@ -141,7 +148,7 @@ function 料理記事楽天統合生成(dishName, title, body, imageUrl) {
   if (!imageUrl) throw new Error('料理写真URLが必要です。完成記事には料理写真を必須にします。');
 
   var products = KAZU_ARTICLE_PICK_PRODUCTS_(dishName, 3);
-  if (products.length === 0) throw new Error('楽天商品を3件選定できませんでした。');
+  if (products.length === 0) throw new Error('楽天商品を選定できませんでした。');
 
   var html = '<article>\n';
   html += '<h1>' + KAZU_ARTICLE_ESCAPE_(title) + '</h1>\n';
