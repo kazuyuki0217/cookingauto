@@ -340,3 +340,24 @@ function 楽天ブラウザ検索結果取得() {
   if(!text)return {success:false,count:0,items:[]};
   try{return JSON.parse(text);}catch(e){return {success:false,count:0,items:[]};}
 }
+
+/* ================= Pinterest OAuth 診断 ================= */
+function PinterestOAuth診断ログ() {
+  var props = PropertiesService.getScriptProperties().getProperties();
+  var result = {
+    appId: KAZU_PINTEREST_APP_ID_(),
+    requestedScopes: KAZU_PINTEREST_SCOPES_(),
+    grantedScopes: props.PINTEREST_GRANTED_SCOPES || '未登録',
+    accessToken: props.PINTEREST_ACCESS_TOKEN ? '登録済み' : '未登録',
+    refreshToken: props.PINTEREST_REFRESH_TOKEN ? '登録済み' : '未登録',
+    expiresAt: props.PINTEREST_ACCESS_TOKEN_EXPIRES_AT || '未登録',
+    boardId: props.PINTEREST_BOARD_ID || '未登録',
+    redirectUri: KAZU_PINTEREST_REDIRECT_URI_()
+  };
+  Logger.log('========== Pinterest OAuth 診断 ==========');
+  Logger.log(JSON.stringify(result, null, 2));
+  if (result.grantedScopes === '未登録') Logger.log('判定: OAuth後のscope情報が保存されていません。再認証が必要です。');
+  else if (String(result.grantedScopes).indexOf('pins:write') === -1) Logger.log('判定: pins:write がありません。Pin投稿401の主原因候補です。');
+  else Logger.log('判定: pins:write は保存されています。401は別原因を調査します。');
+  return result;
+}
