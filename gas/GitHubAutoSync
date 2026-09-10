@@ -19,6 +19,18 @@ function runGitHubAutoSync() {
 
     console.log('同期結果: ' + result);
 
+    var oauthFixResult = '';
+    try {
+      oauthFixResult = KAZU_APPLY_PINTEREST_OAUTH_STATE_FIX_();
+      console.log('Pinterest OAuth state修正: ' + oauthFixResult);
+    } catch (oauthFixError) {
+      oauthFixResult = oauthFixError && oauthFixError.message
+        ? oauthFixError.message
+        : String(oauthFixError);
+      console.log('Pinterest OAuth state修正エラー: ' + oauthFixResult);
+      console.log('GitHub/GAS同期結果は維持します。');
+    }
+
     var deploymentResult = '';
 
     if (typeof result === 'string' && result.indexOf('同期完了') !== -1) {
@@ -33,15 +45,19 @@ function runGitHubAutoSync() {
         console.log('GAS本体同期は成功しています。');
       }
     } else {
-      console.log('GAS側に反映すべき変更がないため、デプロイ更新は行いません。');
+      console.log('GAS側に反映すべき変更がないため、通常のデプロイ更新は行いません。');
     }
 
-    saveSyncLog_('SUCCESS', result + (deploymentResult ? '\n' + deploymentResult : ''), startedAt, new Date());
+    var finalMessage = result +
+      (oauthFixResult ? '\n' + oauthFixResult : '') +
+      (deploymentResult ? '\n' + deploymentResult : '');
+
+    saveSyncLog_('SUCCESS', finalMessage, startedAt, new Date());
 
     console.log('GitHub自動同期 正常終了');
     console.log('================================');
 
-    return result + (deploymentResult ? '\n' + deploymentResult : '');
+    return finalMessage;
 
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
@@ -53,6 +69,71 @@ function runGitHubAutoSync() {
 
     return 'GitHub自動同期エラー: ' + message;
   }
+}
+
+function KAZU_APPLY_PINTEREST_OAUTH_STATE_FIX_() {
+  var scriptId = ScriptApp.getScriptId();
+  var url = 'https://script.googleapis.com/v1/projects/' + encodeURIComponent(scriptId) + '/content';
+  var token = ScriptApp.getOAuthToken();
+
+  var response = UrlFetchApp.fetch(url, {
+    method: 'get',
+    muteHttpExceptions: true,
+    headers: { Authorization: 'Bearer ' + token }
+  });
+
+  var code = response.getResponseCode();
+  var body = response.getContentText();
+  if (code < 200 || code >= 300) {
+    throw new Error('Apps Script API GET HTTP ' + code + '\n' + body);
+  }
+
+  var project = JSON.parse(body);
+  if (!project.files || !project.files.length) {
+    throw new Error('GASプロジェクトのファイル一覧を取得できませんでした。');
+  }
+
+  var changed = false;
+  project.files = project.files.map(function(file) {
+    if (file.name !== 'コード' && file.name !== 'コード.gs' && file.name !== 'Code.gs' && file.name !== 'Code') {
+      return file;
+    }
+
+    if (!file.source) return file;
+
+    var oldBlock = "function KAZU_PINTEREST_STATE_() {\n  var state = Utilities.getUuid().replace(/-/g,'');\n  PropertiesService.getScriptProperties().setProperty('PINTEREST_OAUTH_STATE',state);\n  return state;\n}\nfunction KAZU_PINTEREST_AUTH_URL_() {\n  var state = KAZU_PINTEREST_STATE_();";
+
+    var newBlock = "function KAZU_PINTEREST_STATE_() {\n  var props = PropertiesService.getScriptProperties();\n  var state = props.getProperty('PINTEREST_OAUTH_STATE');\n  if (!state) {\n    state = Utilities.getUuid().replace(/-/g,'');\n    props.setProperty('PINTEREST_OAUTH_STATE',state);\n  }\n  return state;\n}\nfunction KAZU_PINTEREST_AUTH_URL_() {\n  var state = KAZU_PINTEREST_STATE_();";
+
+    if (file.source.indexOf(newBlock) !== -1) return file;
+    if (file.source.indexOf(oldBlock) === -1) {
+      throw new Error('コード内のPinterest OAuth state対象箇所が見つかりません。');
+    }
+
+    file.source = file.source.replace(oldBlock, newBlock);
+    changed = true;
+    return file;
+  });
+
+  if (!changed) {
+    return 'OAuth state修正済み。変更不要。';
+  }
+
+  var putResponse = UrlFetchApp.fetch(url, {
+    method: 'put',
+    muteHttpExceptions: true,
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + token },
+    payload: JSON.stringify({ files: project.files })
+  });
+
+  var putCode = putResponse.getResponseCode();
+  var putBody = putResponse.getContentText();
+  if (putCode < 200 || putCode >= 300) {
+    throw new Error('Apps Script API PUT HTTP ' + putCode + '\n' + putBody);
+  }
+
+  return 'OAuth state修正をGAS本体コードへ統合しました。';
 }
 
 function saveSyncLog_(status, message, startedAt, finishedAt) {
