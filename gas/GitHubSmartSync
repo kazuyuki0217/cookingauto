@@ -7,6 +7,7 @@
  * ・楽天ブラウザ検索HTMLを直接取得して同期
  * ・コード.gsに変更がなくてもHTML同期を実行
  * ・既存GASファイルは保持
+ * ・料理記事楽天統合.gsを安全に追加/更新
  *************************************************/
 
 function runGitHubSmartSync() {
@@ -186,10 +187,6 @@ function runGitHubSmartSync() {
       }
     }
 
-    /*
-     * Pinterest Sandbox テストファイル同期
-     * 既存ファイルを変更せず、新規ファイルのみ安全に追加する。
-     */
     var sandboxPath = 'gas/PinterestSandboxTest.gs';
     var sandboxName = 'PinterestSandboxTest';
     var sandboxSource = '';
@@ -238,7 +235,59 @@ function runGitHubSmartSync() {
       }
     }
 
-    if (!changedMain && !changedBridge && !changedSandbox) {
+    /*
+     * 料理記事楽天統合.gs 同期
+     * コード.gs本体には手を加えず、独立ファイルとして追加/更新する。
+     */
+    var articlePath = 'gas/料理記事楽天統合.gs';
+    var articleName = '料理記事楽天統合';
+    var articleSource = '';
+    var articleExists = false;
+    var changedArticle = false;
+
+    try {
+      articleSource = getGitHubFile_(c, articlePath);
+      articleExists = true;
+      console.log('GitHub料理記事楽天統合取得成功: ' + articlePath);
+    } catch (articleError) {
+      console.log('GitHubに料理記事楽天統合がありません。');
+    }
+
+    if (articleExists) {
+      var articleGasIndex = -1;
+
+      for (var a = 0; a < files.length; a++) {
+        if (files[a].name === articleName || files[a].name === articleName + '.gs') {
+          articleGasIndex = a;
+          break;
+        }
+      }
+
+      if (articleGasIndex >= 0) {
+        var currentArticleSource = typeof files[articleGasIndex].source === 'string' ? files[articleGasIndex].source : '';
+        if (currentArticleSource !== articleSource || files[articleGasIndex].name !== articleName || files[articleGasIndex].type !== 'SERVER_JS') {
+          files[articleGasIndex] = {
+            name: articleName,
+            type: 'SERVER_JS',
+            source: articleSource
+          };
+          changedArticle = true;
+          console.log('料理記事楽天統合を更新します。');
+        } else {
+          console.log('料理記事楽天統合は変更なし。');
+        }
+      } else {
+        files.push({
+          name: articleName,
+          type: 'SERVER_JS',
+          source: articleSource
+        });
+        changedArticle = true;
+        console.log('料理記事楽天統合をGASへ追加します。');
+      }
+    }
+
+    if (!changedMain && !changedBridge && !changedSandbox && !changedArticle) {
       console.log('同期対象に変更なし。');
       console.log('保持ファイル数: ' + files.length);
       console.log('================================');
@@ -271,6 +320,7 @@ function runGitHubSmartSync() {
     console.log('料理本体コード: ' + (changedMain ? '更新' : '変更なし'));
     console.log('楽天ブラウザHTML: ' + (changedBridge ? '更新/追加' : '変更なし'));
     console.log('Pinterest Sandboxテスト: ' + (changedSandbox ? '更新/追加' : '変更なし'));
+    console.log('料理記事楽天統合: ' + (changedArticle ? '更新/追加' : '変更なし'));
     console.log('================================');
 
     return '同期完了：GitHubの変更をGASへ反映しました。';
