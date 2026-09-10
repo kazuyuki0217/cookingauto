@@ -1,0 +1,49 @@
+name: Pinterest OAuth state fix
+
+on:
+  push:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply minimal OAuth state fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('gas/コード')
+          s = p.read_text(encoding='utf-8')
+
+          old = """function KAZU_PINTEREST_AUTH_URL_() {\n  var state = KAZU_PINTEREST_STATE_();\n  return 'https://www.pinterest.com/oauth/?' + [\n    'client_id=' + encodeURIComponent(KAZU_PINTEREST_APP_ID_()),\n    'redirect_uri=' + encodeURIComponent(KAZU_PINTEREST_REDIRECT_URI_()),\n    'response_type=code',\n    'scope=' + encodeURIComponent(KAZU_PINTEREST_SCOPES_()),\n    'state=' + encodeURIComponent(state)\n  ].join('&');\n}"""
+
+          new = """function KAZU_PINTEREST_AUTH_URL_() {\n  var props = PropertiesService.getScriptProperties();\n  var state = props.getProperty('PINTEREST_OAUTH_STATE');\n  if (!state) {\n    state = KAZU_PINTEREST_STATE_();\n  }\n  return 'https://www.pinterest.com/oauth/?' + [\n    'client_id=' + encodeURIComponent(KAZU_PINTEREST_APP_ID_()),\n    'redirect_uri=' + encodeURIComponent(KAZU_PINTEREST_REDIRECT_URI_()),\n    'response_type=code',\n    'scope=' + encodeURIComponent(KAZU_PINTEREST_SCOPES_()),\n    'state=' + encodeURIComponent(state)\n  ].join('&');\n}"""
+
+          if new in s:
+              print('OAuth state fix already present; no change.')
+          elif old in s:
+              p.write_text(s.replace(old, new, 1), encoding='utf-8')
+              print('OAuth state fix applied.')
+          else:
+              raise SystemExit('Target OAuth function was not found. No change made.')
+          PY
+
+      - name: Commit only when changed
+        shell: bash
+        run: |
+          if git diff --quiet -- 'gas/コード'; then
+            echo 'No code change required.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- 'gas/コード'
+          git commit -m 'Fix Pinterest OAuth state reuse'
+          git push
