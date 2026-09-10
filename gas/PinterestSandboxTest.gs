@@ -1,5 +1,5 @@
 /*
- * Pinterest Sandbox test
+ * Pinterest Sandbox test + 本番ボード設定・本番投稿テスト
  * 既存のコード.gsは変更しません。
  *
  * トークン入力に Browser.inputBox() は使用しません。
@@ -178,4 +178,51 @@ function PinterestSandboxテスト投稿() {
 
   Logger.log('Pinterest Sandbox Pin投稿成功');
   return body;
+}
+
+/* =====================================================
+ * 本番Pinterest用
+ * 本命ボード: 一人暮らし、単身赴任ごはん
+ * ===================================================== */
+
+function Pinterest本命ボード自動設定() {
+  var boardId = '1098948815264117157';
+  PropertiesService.getScriptProperties()
+    .setProperty('PINTEREST_BOARD_ID', boardId);
+  Logger.log('Pinterest本命ボードIDを設定しました: ' + boardId);
+  return boardId;
+}
+
+function Pinterest本命ボード確認() {
+  var boardId = PropertiesService.getScriptProperties()
+    .getProperty('PINTEREST_BOARD_ID');
+  Logger.log('現在のPinterest BOARD ID: ' + (boardId || '未設定'));
+  return boardId || '';
+}
+
+/*
+ * 本番Pinterestへ1件だけ投稿するAPI動作確認。
+ * 既存のコード.gsのPinterestPin作成()を利用します。
+ * 料理系の公開テスト画像を使用し、ユーザーのブログへリンクします。
+ * 本番アカウントに実際のPinが1件作成されます。
+ */
+function Pinterest本番Pin投稿テスト() {
+  var boardId = Pinterest本命ボード自動設定();
+  if (!boardId) {
+    throw new Error('Pinterest本命ボードIDを設定できませんでした。');
+  }
+
+  var imageUrl = 'https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=1200&q=80';
+  var title = '仕事終わりに作れる簡単料理｜一人暮らし・単身赴任ごはん';
+  var description = '仕事終わりでも作りやすい簡単料理。一人暮らし・単身赴任のリアルな料理と、料理をラクにする道具をブログで紹介しています。';
+  var link = 'https://tansinfuninkazu.hatenablog.com/';
+
+  Logger.log('本番Pin投稿開始');
+  Logger.log('BOARD ID: ' + boardId);
+  Logger.log('IMAGE URL: ' + imageUrl);
+
+  var result = PinterestPin作成(imageUrl, title, description, link);
+  Logger.log('本番Pinterest Pin投稿成功');
+  Logger.log(result);
+  return result;
 }
