@@ -5,344 +5,119 @@
  * ・変更がある場合だけGASを更新
  * ・料理本体コードを安全に同期
  * ・楽天ブラウザ検索HTMLを直接取得して同期
- * ・コード.gsに変更がなくてもHTML同期を実行
+ * ・Pinterest Sandboxテストを同期
+ * ・料理記事楽天統合を同期
+ * ・RakutenAutomationBridgeを同期
  * ・既存GASファイルは保持
- * ・料理記事楽天統合.gsを安全に追加/更新
  *************************************************/
 
 function runGitHubSmartSync() {
   console.log('================================');
   console.log('GitHubスマート同期 開始');
-
   try {
     var c = ghConfig_();
     var project = getGasProject_();
     var githubFiles = listGitHubGasFiles_(c);
-
-    if (!githubFiles || !githubFiles.length) {
-      throw new Error('GitHubのgasフォルダにファイルがありません。');
-    }
+    if (!githubFiles || !githubFiles.length) throw new Error('GitHubのgasフォルダにファイルがありません。');
 
     var gasServerFiles = project.files.filter(function(file) {
-      return file.type === 'SERVER_JS' &&
-        !/GitHubSync/i.test(file.name) &&
-        !/GitHubReverseFix/i.test(file.name) &&
-        !/GitHubAutoSync/i.test(file.name) &&
-        !/GitHubSmartSync/i.test(file.name);
+      return file.type === 'SERVER_JS' && !/GitHubSync/i.test(file.name) && !/GitHubReverseFix/i.test(file.name) && !/GitHubAutoSync/i.test(file.name) && !/GitHubSmartSync/i.test(file.name);
     });
-
-    var mainNames = [
-      'コード.gs',
-      'コード',
-      'Code.gs',
-      'Code'
-    ];
-
-    var target = null;
-    var gasTarget = null;
-
+    var mainNames = ['コード.gs','コード','Code.gs','Code'];
+    var target = null, gasTarget = null;
     for (var i = 0; i < mainNames.length; i++) {
       var name = mainNames[i];
-
-      var gh = githubFiles.find(function(file) {
-        return file.name === name;
-      });
-
-      var gas = gasServerFiles.find(function(file) {
-        return file.name === name;
-      });
-
-      if (gh && gas) {
-        target = gh;
-        gasTarget = gas;
-        break;
-      }
+      var gh = githubFiles.find(function(file) { return file.name === name; });
+      var gas = gasServerFiles.find(function(file) { return file.name === name; });
+      if (gh && gas) { target = gh; gasTarget = gas; break; }
     }
-
     if (!target) {
-      var ghMain = githubFiles.find(function(file) {
-        return mainNames.indexOf(file.name) !== -1;
-      });
-
+      var ghMain = githubFiles.find(function(file) { return mainNames.indexOf(file.name) !== -1; });
       if (ghMain) {
-        var gasMain = gasServerFiles.find(function(file) {
-          return mainNames.indexOf(file.name) !== -1;
-        });
-
-        if (gasMain) {
-          target = ghMain;
-          gasTarget = gasMain;
-        }
+        var gasMain = gasServerFiles.find(function(file) { return mainNames.indexOf(file.name) !== -1; });
+        if (gasMain) { target = ghMain; gasTarget = gasMain; }
       }
     }
-
     if (!target) {
       for (var j = 0; j < gasServerFiles.length; j++) {
         var gasFile = gasServerFiles[j];
-
         var match = githubFiles.find(function(file) {
-          return file.name === gasFile.name &&
-            !/バックアップ/i.test(file.name) &&
-            !/backup/i.test(file.name) &&
-            !/Fix/i.test(file.name) &&
-            !/Compare/i.test(file.name) &&
-            !/browser/i.test(file.name) &&
-            !/RootTest/i.test(file.name);
+          return file.name === gasFile.name && !/バックアップ/i.test(file.name) && !/backup/i.test(file.name) && !/Fix/i.test(file.name) && !/Compare/i.test(file.name) && !/browser/i.test(file.name) && !/RootTest/i.test(file.name);
         });
-
-        if (match) {
-          target = match;
-          gasTarget = gasFile;
-          break;
-        }
+        if (match) { target = match; gasTarget = gasFile; break; }
       }
     }
-
-    if (!target || !gasTarget) {
-      throw new Error('料理本体コードの同期対象を安全に特定できません。');
-    }
+    if (!target || !gasTarget) throw new Error('料理本体コードの同期対象を安全に特定できません。');
 
     console.log('比較対象: ' + target.path + ' ⇄ GAS ' + gasTarget.name);
-
     var githubSource = getGitHubFile_(c, target.path);
     var gasSource = typeof gasTarget.source === 'string' ? gasTarget.source : '';
-
-    var githubHash = createHash_(githubSource);
-    var gasHash = createHash_(gasSource);
-
+    var githubHash = createHash_(githubSource), gasHash = createHash_(gasSource);
     console.log('GitHub HASH: ' + githubHash);
     console.log('GAS HASH: ' + gasHash);
 
-    var files = project.files.map(function(file) {
-      return {
-        name: file.name,
-        type: file.type,
-        source: typeof file.source === 'string' ? file.source : ''
-      };
-    });
-
+    var files = project.files.map(function(file) { return {name:file.name,type:file.type,source:typeof file.source === 'string' ? file.source : ''}; });
     var changedMain = false;
-
     if (githubHash !== gasHash) {
       console.log('料理本体コードの変更を検出しました。');
+      files.forEach(function(file) { if (file.name === gasTarget.name) { file.source = githubSource; changedMain = true; } });
+    } else console.log('料理本体コードは変更なし。');
 
-      files.forEach(function(file) {
-        if (file.name === gasTarget.name) {
-          file.source = githubSource;
-          changedMain = true;
-          console.log('料理本体コードをGASへ反映します。');
-        }
-      });
-    } else {
-      console.log('料理本体コードは変更なし。');
-    }
+    var changedBrowser = syncOneGitHubFile_(c, files, 'gas/RakutenBrowserBridge.html', 'RakutenBrowserBridge', 'HTML', '楽天ブラウザHTML');
+    var changedSandbox = syncOneGitHubFile_(c, files, 'gas/PinterestSandboxTest.gs', 'PinterestSandboxTest', 'SERVER_JS', 'Pinterest Sandboxテスト');
+    var changedArticle = syncOneGitHubFile_(c, files, 'gas/料理記事楽天統合.gs', '料理記事楽天統合', 'SERVER_JS', '料理記事楽天統合');
+    var changedRakuten = syncOneGitHubFile_(c, files, 'gas/RakutenAutomationBridge.gs', 'RakutenAutomationBridge', 'SERVER_JS', '楽天自動化ブリッジ');
 
-    var bridgeName = 'RakutenBrowserBridge';
-    var bridgePath = 'gas/RakutenBrowserBridge.html';
-    var bridgeSource = '';
-    var bridgeExists = false;
-    var changedBridge = false;
-
-    try {
-      bridgeSource = getGitHubFile_(c, bridgePath);
-      bridgeExists = true;
-      console.log('GitHub楽天ブラウザHTML取得成功: ' + bridgePath);
-    } catch (bridgeError) {
-      console.log('GitHubに楽天ブラウザHTMLがありません。');
-      console.log(bridgeError && bridgeError.message ? bridgeError.message : String(bridgeError));
-    }
-
-    if (bridgeExists) {
-      var bridgeGasIndex = -1;
-
-      for (var k = 0; k < files.length; k++) {
-        if (files[k].name === bridgeName || files[k].name === bridgeName + '.html') {
-          bridgeGasIndex = k;
-          break;
-        }
-      }
-
-      if (bridgeGasIndex >= 0) {
-        var currentBridgeSource = typeof files[bridgeGasIndex].source === 'string' ? files[bridgeGasIndex].source : '';
-
-        if (currentBridgeSource !== bridgeSource || files[bridgeGasIndex].name !== bridgeName || files[bridgeGasIndex].type !== 'HTML') {
-          files[bridgeGasIndex] = {
-            name: bridgeName,
-            type: 'HTML',
-            source: bridgeSource
-          };
-          changedBridge = true;
-          console.log('楽天ブラウザHTMLを更新します。');
-        } else {
-          console.log('楽天ブラウザHTMLは変更なし。');
-        }
-      } else {
-        files.push({
-          name: bridgeName,
-          type: 'HTML',
-          source: bridgeSource
-        });
-        changedBridge = true;
-        console.log('楽天ブラウザHTMLをGASへ追加します。');
-      }
-    }
-
-    var sandboxPath = 'gas/PinterestSandboxTest.gs';
-    var sandboxName = 'PinterestSandboxTest';
-    var sandboxSource = '';
-    var sandboxExists = false;
-    var changedSandbox = false;
-
-    try {
-      sandboxSource = getGitHubFile_(c, sandboxPath);
-      sandboxExists = true;
-      console.log('GitHub Pinterest Sandboxテスト取得成功: ' + sandboxPath);
-    } catch (sandboxError) {
-      console.log('GitHubにPinterest Sandboxテストファイルがありません。');
-    }
-
-    if (sandboxExists) {
-      var sandboxGasIndex = -1;
-
-      for (var s = 0; s < files.length; s++) {
-        if (files[s].name === sandboxName || files[s].name === sandboxName + '.gs') {
-          sandboxGasIndex = s;
-          break;
-        }
-      }
-
-      if (sandboxGasIndex >= 0) {
-        var currentSandboxSource = typeof files[sandboxGasIndex].source === 'string' ? files[sandboxGasIndex].source : '';
-        if (currentSandboxSource !== sandboxSource || files[sandboxGasIndex].name !== sandboxName || files[sandboxGasIndex].type !== 'SERVER_JS') {
-          files[sandboxGasIndex] = {
-            name: sandboxName,
-            type: 'SERVER_JS',
-            source: sandboxSource
-          };
-          changedSandbox = true;
-          console.log('Pinterest Sandboxテストファイルを更新します。');
-        } else {
-          console.log('Pinterest Sandboxテストファイルは変更なし。');
-        }
-      } else {
-        files.push({
-          name: sandboxName,
-          type: 'SERVER_JS',
-          source: sandboxSource
-        });
-        changedSandbox = true;
-        console.log('Pinterest SandboxテストファイルをGASへ追加します。');
-      }
-    }
-
-    /*
-     * 料理記事楽天統合.gs 同期
-     * コード.gs本体には手を加えず、独立ファイルとして追加/更新する。
-     */
-    var articlePath = 'gas/料理記事楽天統合.gs';
-    var articleName = '料理記事楽天統合';
-    var articleSource = '';
-    var articleExists = false;
-    var changedArticle = false;
-
-    try {
-      articleSource = getGitHubFile_(c, articlePath);
-      articleExists = true;
-      console.log('GitHub料理記事楽天統合取得成功: ' + articlePath);
-    } catch (articleError) {
-      console.log('GitHubに料理記事楽天統合がありません。');
-    }
-
-    if (articleExists) {
-      var articleGasIndex = -1;
-
-      for (var a = 0; a < files.length; a++) {
-        if (files[a].name === articleName || files[a].name === articleName + '.gs') {
-          articleGasIndex = a;
-          break;
-        }
-      }
-
-      if (articleGasIndex >= 0) {
-        var currentArticleSource = typeof files[articleGasIndex].source === 'string' ? files[articleGasIndex].source : '';
-        if (currentArticleSource !== articleSource || files[articleGasIndex].name !== articleName || files[articleGasIndex].type !== 'SERVER_JS') {
-          files[articleGasIndex] = {
-            name: articleName,
-            type: 'SERVER_JS',
-            source: articleSource
-          };
-          changedArticle = true;
-          console.log('料理記事楽天統合を更新します。');
-        } else {
-          console.log('料理記事楽天統合は変更なし。');
-        }
-      } else {
-        files.push({
-          name: articleName,
-          type: 'SERVER_JS',
-          source: articleSource
-        });
-        changedArticle = true;
-        console.log('料理記事楽天統合をGASへ追加します。');
-      }
-    }
-
-    if (!changedMain && !changedBridge && !changedSandbox && !changedArticle) {
+    if (!changedMain && !changedBrowser && !changedSandbox && !changedArticle && !changedRakuten) {
       console.log('同期対象に変更なし。');
       console.log('保持ファイル数: ' + files.length);
-      console.log('================================');
       return '同期不要：GitHubとGASは最新状態です。';
     }
 
     var scriptId = ScriptApp.getScriptId();
     var url = 'https://script.googleapis.com/v1/projects/' + encodeURIComponent(scriptId) + '/content';
-
     console.log('GASプロジェクト更新開始');
-
-    var res = UrlFetchApp.fetch(url, {
-      method: 'put',
-      contentType: 'application/json',
-      headers: {
-        Authorization: 'Bearer ' + ScriptApp.getOAuthToken()
-      },
-      payload: JSON.stringify({files: files}),
-      muteHttpExceptions: true
-    });
-
+    var res = UrlFetchApp.fetch(url, {method:'put',contentType:'application/json',headers:{Authorization:'Bearer '+ScriptApp.getOAuthToken()},payload:JSON.stringify({files:files}),muteHttpExceptions:true});
     var code = res.getResponseCode();
-
-    if (code !== 200) {
-      throw new Error('GAS更新失敗 HTTP ' + code + '\n' + res.getContentText());
-    }
+    if (code !== 200) throw new Error('GAS更新失敗 HTTP ' + code + '\n' + res.getContentText());
 
     console.log('GitHub → GAS 反映完了');
     console.log('保持ファイル数: ' + files.length);
     console.log('料理本体コード: ' + (changedMain ? '更新' : '変更なし'));
-    console.log('楽天ブラウザHTML: ' + (changedBridge ? '更新/追加' : '変更なし'));
+    console.log('楽天ブラウザHTML: ' + (changedBrowser ? '更新/追加' : '変更なし'));
     console.log('Pinterest Sandboxテスト: ' + (changedSandbox ? '更新/追加' : '変更なし'));
     console.log('料理記事楽天統合: ' + (changedArticle ? '更新/追加' : '変更なし'));
-    console.log('================================');
-
+    console.log('楽天自動化ブリッジ: ' + (changedRakuten ? '更新/追加' : '変更なし'));
     return '同期完了：GitHubの変更をGASへ反映しました。';
-
   } catch (error) {
     var message = error && error.message ? error.message : String(error);
     console.log('GitHubスマート同期 エラー');
     console.log(message);
-    console.log('================================');
     return '同期エラー: ' + message;
   }
 }
 
-function createHash_(text) {
-  var bytes = Utilities.computeDigest(
-    Utilities.DigestAlgorithm.SHA_256,
-    text,
-    Utilities.Charset.UTF_8
-  );
+function syncOneGitHubFile_(c, files, path, name, type, label) {
+  var source = '';
+  try { source = getGitHubFile_(c, path); console.log('GitHub' + label + '取得成功: ' + path); }
+  catch (e) { console.log('GitHubに' + label + 'がありません。'); return false; }
+  var index = -1;
+  for (var i = 0; i < files.length; i++) {
+    if (files[i].name === name || files[i].name === name + '.gs' || files[i].name === name + '.html') { index = i; break; }
+  }
+  if (index >= 0) {
+    var current = typeof files[index].source === 'string' ? files[index].source : '';
+    if (current === source && files[index].name === name && files[index].type === type) { console.log(label + 'は変更なし。'); return false; }
+    files[index] = {name:name,type:type,source:source};
+    console.log(label + 'を更新します。');
+    return true;
+  }
+  files.push({name:name,type:type,source:source});
+  console.log(label + 'をGASへ追加します。');
+  return true;
+}
 
-  return bytes.map(function(byte) {
-    var value = byte < 0 ? byte + 256 : byte;
-    return value.toString(16).padStart(2, '0');
-  }).join('');
+function createHash_(text) {
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, text, Utilities.Charset.UTF_8);
+  return bytes.map(function(byte) { var value = byte < 0 ? byte + 256 : byte; return value.toString(16).padStart(2,'0'); }).join('');
 }
