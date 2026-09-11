@@ -6,7 +6,8 @@ import urllib.error
 import urllib.request
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
-MODEL = "gemini-2.5-flash-lite"
+# 2026-09現在の無料枠対応モデル。Gemini 2.5 Flash-Liteから移行。
+MODEL = "gemini-3.5-flash-lite"
 API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent"
 
 
@@ -48,7 +49,7 @@ AIが実際に食べたような表現は禁止です。
 本文には、写真から分かる料理の特徴、材料、作り方、仕事終わり向けの時短・節約ポイント、失敗しにくいポイント、料理と相性の良いキッチン用品紹介、まとめを含めてください。
 不明な材料や分量は推測で断定しないでください。宣伝臭を強くせず、実際の単身赴任生活の記事らしい文章にしてください。
 """
-    payload = {"contents":[{"parts":[{"text":prompt},{"inline_data":{"mime_type":mime_type(image_path),"data":image_data}}]}],"generationConfig":{"temperature":0.7,"maxOutputTokens":5000}}
+    payload = {"contents":[{"parts":[{"text":prompt},{"inline_data":{"mime_type":mime_type(image_path),"data":image_data}}]}],"generationConfig":{"maxOutputTokens":5000}}
     request = urllib.request.Request(API_URL + "?key=" + api_key, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"), headers={"Content-Type":"application/json"}, method="POST")
     try:
         with urllib.request.urlopen(request, timeout=120) as response:
