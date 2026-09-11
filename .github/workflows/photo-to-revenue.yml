@@ -80,6 +80,12 @@ jobs:
       - name: Pinterest用5パターンを生成
         run: python generate_pinterest_pins.py
 
+      - name: Pinterestへ5件を自動投稿
+        env:
+          PINTEREST_GAS_URL: ${{ secrets.PINTEREST_GAS_URL }}
+          PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
+        run: python publish_pinterest_via_gas.py
+
       - name: 成果物を保存
         uses: actions/upload-artifact@v4
         with:
@@ -92,8 +98,8 @@ jobs:
             cooking_image_url.txt
             hatena_post_url.txt
             pinterest_pins.json
+            pinterest_publish_result.json
 
-      - name: Pinterest自動投稿の状態
+      - name: Pinterest自動投稿完了確認
         run: |
-          echo '5パターンのPinデータ生成まで完了。'
-          echo 'Pinterest実投稿は、現在のGAS OAuthトークンをGitHub Actionsへ安全に連携する工程を別途完了させる。'
+          echo 'Pinterestへ5件の実投稿まで完了しました。'
