@@ -49,7 +49,9 @@ jobs:
           HATENA_FOTOLIFE_FOLDER: 料理アフィリエイト自動化
         run: python hatena_fotolife_upload.py
 
-      - name: 無料で料理記事を作成
+      - name: 無料Geminiで料理写真を解析して記事作成
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python generate_article.py
 
       - name: 楽天アフィリエイト商品を組み込む
@@ -99,5 +101,4 @@ jobs:
             pinterest_publish_result.json
 
       - name: Pinterest自動投稿完了確認
-        run: |
-          echo 'Pinterestへ5件の実投稿まで完了しました。'
+        run: echo 'Pinterestへ5件の実投稿まで完了しました。'
