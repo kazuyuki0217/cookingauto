@@ -1,0 +1,99 @@
+name: 料理写真→収益化パイプライン
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_file:
+        description: '画像ファイル名（images/内）。空欄なら最初の画像を使用'
+        required: false
+        type: string
+  push:
+    paths:
+      - 'images/**'
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: Pythonをセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 必要なライブラリをインストール
+        run: pip install -r requirements.txt openai requests
+
+      - name: 入力画像を確認
+        env:
+          INPUT_IMAGE: ${{ inputs.image_file }}
+        run: |
+          if [ -n "$INPUT_IMAGE" ]; then
+            echo "COOKING_IMAGE_FILE=images/$INPUT_IMAGE" >> "$GITHUB_ENV"
+          else
+            echo "COOKING_IMAGE_FILE=" >> "$GITHUB_ENV"
+          fi
+
+      - name: 料理写真を準備
+        run: python upload_cooking_photo.py
+
+      - name: はてなフォトライフへ画像を公開
+        env:
+          HATENA_ID: ${{ secrets.HATENA_ID }}
+          HATENA_API_KEY: ${{ secrets.HATENA_API_KEY }}
+          HATENA_FOTOLIFE_FOLDER: 料理アフィリエイト自動化
+        run: python hatena_fotolife_upload.py
+
+      - name: AIで料理記事を作成
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python generate_article.py
+
+      - name: 楽天アフィリエイト商品を組み込む
+        env:
+          RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
+          RAKUTEN_APP_ID: ${{ secrets.RAKUTEN_APP_ID }}
+          RAKUTEN_AFFILIATE_ID: ${{ secrets.RAKUTEN_AFFILIATE_ID }}
+        run: python article_affiliate_builder.py
+
+      - name: はてなブログへ完成記事を投稿
+        env:
+          HATENA_ID: ${{ secrets.HATENA_ID }}
+          HATENA_API_KEY: ${{ secrets.HATENA_API_KEY }}
+          HATENA_ENDPOINT: ${{ secrets.HATENA_ENDPOINT }}
+          POST_TITLE_FILE: article_title.txt
+          POST_BODY_FILE: article_final.html
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          os.environ['POST_TITLE'] = Path(os.environ['POST_TITLE_FILE']).read_text(encoding='utf-8').strip()
+          os.environ['POST_BODY'] = Path(os.environ['POST_BODY_FILE']).read_text(encoding='utf-8')
+          import post_to_hatena
+          PY
+
+      - name: Pinterest用5パターンを生成
+        run: python generate_pinterest_pins.py
+
+      - name: 成果物を保存
+        uses: actions/upload-artifact@v4
+        with:
+          name: cooking-revenue-pipeline
+          path: |
+            article_title.txt
+            dish_name.txt
+            article_body.txt
+            article_final.html
+            cooking_image_url.txt
+            hatena_post_url.txt
+            pinterest_pins.json
+
+      - name: Pinterest自動投稿の状態
+        run: |
+          echo '5パターンのPinデータ生成まで完了。'
+          echo 'Pinterest実投稿は、現在のGAS OAuthトークンをGitHub Actionsへ安全に連携する工程を別途完了させる。'
