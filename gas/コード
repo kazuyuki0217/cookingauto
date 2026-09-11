@@ -365,3 +365,37 @@ function PinterestOAuth診断ログ() {
   else Logger.log('判定: pins:write は保存されています。401は別原因を調査します。');
   return result;
 }
+
+/* ================= GitHub→GAS→Pinterest 自動投稿橋渡し ================= */
+function KAZU_PINTEREST_AUTOMATION_SECRET_() {
+  var secret = KAZU_PROP_('PINTEREST_AUTOMATION_SECRET');
+  if (!secret) throw new Error('PINTEREST_AUTOMATION_SECRETが未登録です。Script Propertiesに登録してください。');
+  return secret;
+}
+function KAZU_JSON_RESPONSE_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+function doPost(e) {
+  try {
+    if (!e || !e.postData || !e.postData.contents) return KAZU_JSON_RESPONSE_({success:false,error:'POSTデータがありません。'});
+    var data = JSON.parse(e.postData.contents);
+    if (!data.secret || data.secret !== KAZU_PINTEREST_AUTOMATION_SECRET_()) return KAZU_JSON_RESPONSE_({success:false,error:'Unauthorized'});
+    if (!data.pins || !Array.isArray(data.pins)) return KAZU_JSON_RESPONSE_({success:false,error:'pinsがありません。'});
+    if (data.pins.length !== 5) return KAZU_JSON_RESPONSE_({success:false,error:'Pinterest投稿データは5件必要です。',count:data.pins.length});
+    var results = [];
+    data.pins.forEach(function(pin,index) {
+      if (!pin || !pin.imageUrl || !pin.title || !pin.link) throw new Error('Pin '+(index+1)+'に必要なimageUrl/title/linkがありません。');
+      var result = PinterestPin作成(String(pin.imageUrl),String(pin.title),String(pin.description || ''),String(pin.link));
+      results.push({index:index+1,id:result.id || '',success:true});
+      if (index < data.pins.length - 1) Utilities.sleep(1500);
+    });
+    return KAZU_JSON_RESPONSE_({success:true,count:results.length,results:results});
+  } catch (err) {
+    Logger.log('Pinterest自動投稿橋渡しエラー: ' + (err && err.stack ? err.stack : err));
+    return KAZU_JSON_RESPONSE_({success:false,error:String(err && err.message ? err.message : err)});
+  }
+}
+function Pinterest自動投稿橋渡し確認() {
+  var props = PropertiesService.getScriptProperties().getProperties();
+  return {secret:props.PINTEREST_AUTOMATION_SECRET?'登録済み':'未登録',accessToken:props.PINTEREST_ACCESS_TOKEN?'登録済み':'未登録',refreshToken:props.PINTEREST_REFRESH_TOKEN?'登録済み':'未登録',boardId:props.PINTEREST_BOARD_ID||'未登録'};
+}
