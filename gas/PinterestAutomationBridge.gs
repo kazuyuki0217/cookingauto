@@ -4,9 +4,13 @@
  * GitHub Actionsから5件のPinデータを受け取り、
  * Code.gsに保存されているPinterest OAuthトークンを利用して投稿する。
  *
+ * 楽天商品検索も同じ認証済みブリッジ経由で実行する。
+ * 楽天アクセスキーはGitHubへ渡さない。
+ *
  * セキュリティ:
  * - PINTEREST_AUTOMATION_SECRETはScript Propertiesに保存
  * - Pinterestアクセストークン/refresh tokenはGitHubへ渡さない
+ * - 楽天API認証情報もScript Propertiesからのみ取得
  */
 
 function KAZU_PINTEREST_AUTOMATION_SECRET_() {
@@ -39,6 +43,11 @@ function doPost(e) {
     var expected = KAZU_PINTEREST_AUTOMATION_SECRET_();
     if (!body.secret || body.secret !== expected) {
       return KAZU_PINTEREST_AUTOMATION_JSON_(false, {error:'認証に失敗しました。'});
+    }
+
+    // 楽天商品検索は、既存Pinterestブリッジと同じ認証済みGAS Webアプリで処理する。
+    if (body.service === 'rakuten') {
+      return KAZU_RAKUTEN_AUTOMATION_(body);
     }
 
     var pins = body.pins;
