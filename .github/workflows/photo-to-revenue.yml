@@ -27,7 +27,7 @@ jobs:
           python-version: '3.12'
 
       - name: 必要なライブラリをインストール
-        run: pip install -r requirements.txt openai requests
+        run: pip install -r requirements.txt requests
 
       - name: 入力画像を確認
         env:
@@ -49,9 +49,7 @@ jobs:
           HATENA_FOTOLIFE_FOLDER: 料理アフィリエイト自動化
         run: python hatena_fotolife_upload.py
 
-      - name: AIで料理記事を作成
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      - name: 無料で料理記事を作成
         run: python generate_article.py
 
       - name: 楽天アフィリエイト商品を組み込む
