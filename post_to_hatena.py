@@ -31,4 +31,22 @@ response = requests.post(
 print("投稿先:", ENDPOINT)
 print("HTTPステータス:", response.status_code)
 response.raise_for_status()
+
+post_url = ""
+try:
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(response.content)
+    for link in list(root):
+        if link.tag.endswith("link"):
+            href = link.attrib.get("href", "").strip()
+            if href.startswith("http"):
+                post_url = href
+                break
+except Exception:
+    pass
+
+if not post_url:
+    post_url = "https://tansinfuninkazu.hatenablog.com/"
+Path("hatena_post_url.txt").write_text(post_url, encoding="utf-8")
+print("記事URL:", post_url)
 print("はてなブログへの投稿成功")
