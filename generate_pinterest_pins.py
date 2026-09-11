@@ -2,8 +2,11 @@ import json
 from pathlib import Path
 
 BLOG_URL = "https://tansinfuninkazu.hatenablog.com/"
+if Path("hatena_post_url.txt").exists():
+    candidate = Path("hatena_post_url.txt").read_text(encoding="utf-8").strip()
+    if candidate.startswith("http"):
+        BLOG_URL = candidate
 
-title = Path("article_title.txt").read_text(encoding="utf-8").strip()
 dish = Path("dish_name.txt").read_text(encoding="utf-8").strip() if Path("dish_name.txt").exists() else "料理"
 image_url = Path("cooking_image_url.txt").read_text(encoding="utf-8").strip()
 
@@ -15,11 +18,9 @@ pins = [
     {"title": f"{dish}｜毎日の自炊を楽にするコツ", "description": f"{dish}を作って分かった、時短・片付け・道具選びのポイント。詳しい記事はこちら。"},
 ]
 
-result = []
-for p in pins:
-    result.append({**p, "link": BLOG_URL, "image_url": image_url})
-
+result = [{**p, "link": BLOG_URL, "image_url": image_url} for p in pins]
 Path("pinterest_pins.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
 print("Pinterest用5パターン生成完了")
+print("リンク:", BLOG_URL)
 for i, p in enumerate(result, 1):
     print(f"{i}: {p['title']}")
