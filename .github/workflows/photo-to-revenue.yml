@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       image_file:
-        description: '画像ファイル名（images/内）。空欄なら最初の画像を使用'
+        description: '画像ファイル名（images/内）。空欄なら最新の画像を使用'
         required: false
         type: string
   push:
@@ -13,6 +13,11 @@ on:
 
 permissions:
   contents: read
+
+# 同時実行を防ぎ、同じ処理が並行して投稿される事故を防止する。
+concurrency:
+  group: cooking-revenue-pipeline
+  cancel-in-progress: false
 
 jobs:
   pipeline:
@@ -34,7 +39,11 @@ jobs:
           INPUT_IMAGE: ${{ inputs.image_file }}
         run: |
           if [ -n "$INPUT_IMAGE" ]; then
-            echo "COOKING_IMAGE_FILE=images/$INPUT_IMAGE" >> "$GITHUB_ENV"
+            if [[ "$INPUT_IMAGE" == images/* ]]; then
+              echo "COOKING_IMAGE_FILE=$INPUT_IMAGE" >> "$GITHUB_ENV"
+            else
+              echo "COOKING_IMAGE_FILE=images/$INPUT_IMAGE" >> "$GITHUB_ENV"
+            fi
           else
             echo "COOKING_IMAGE_FILE=" >> "$GITHUB_ENV"
           fi
