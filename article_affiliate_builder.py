@@ -2,14 +2,16 @@ import os
 import re
 from html import escape
 from pathlib import Path
-import requests
 from rakuten_browser_search import search_rakuten_browser
 
 # 楽天Webアプリ型はサーバーからのUrlFetchでは403になるため、
 # GitHub Pages上のブラウザを経由してJSONP検索する。
+# RAKUTEN_ACCESS_KEYが無い場合は旧GAS方式へ戻さず、ここで明確に停止する。
 RAKUTEN_ACCESS_KEY = os.environ.get("RAKUTEN_ACCESS_KEY", "").strip()
-RAKUTEN_GAS_URL = os.environ.get("RAKUTEN_GAS_URL", "").strip()
-RAKUTEN_AUTOMATION_SECRET = os.environ.get("RAKUTEN_AUTOMATION_SECRET", "").strip()
+RAKUTEN_PAGES_URL = os.environ.get(
+    "RAKUTEN_PAGES_URL",
+    "https://kazuyuki0217.github.io/cookingauto/rakuten-test/",
+).strip()
 
 
 def find_photo_url():
@@ -17,18 +19,6 @@ def find_photo_url():
     if not url and Path("cooking_image_url.txt").exists():
         url = Path("cooking_image_url.txt").read_text(encoding="utf-8").strip()
     return url if url.startswith(("https://", "http://")) else ""
-
-
-def search_rakuten_via_gas(keywords):
-    if not RAKUTEN_GAS_URL or not RAKUTEN_AUTOMATION_SECRET:
-        raise RuntimeError("楽天ブラウザ検索の設定がありません。RAKUTEN_ACCESS_KEYをGitHub Secretsへ登録してください。")
-    payload = {"service": "rakuten", "secret": RAKUTEN_AUTOMATION_SECRET, "keywords": keywords[:5]}
-    response = requests.post(RAKUTEN_GAS_URL, json=payload, timeout=60)
-    response.raise_for_status()
-    data = response.json()
-    if not data.get("success"):
-        raise RuntimeError("GAS楽天ブリッジエラー: " + str(data.get("error", "不明なエラー")))
-    return data.get("items", [])
 
 
 def _tokens(text):
@@ -55,28 +45,34 @@ def _product_score(item, dish_name):
 
 
 def choose_products(dish_name):
-    keywords = [f"{dish_name} フライパン", f"{dish_name} 調理器具", f"{dish_name} キッチン用品"]
+    if not RAKUTEN_ACCESS_KEY:
+        raise RuntimeError(
+            "楽天アクセスキーがGitHub Actions Secret RAKUTEN_ACCESS_KEYに未登録です。"
+            "旧GAS方式にはフォールバックしません。"
+        )
 
-    if RAKUTEN_ACCESS_KEY:
-        candidates, seen = [], set()
-        for keyword in keywords:
-            for item in search_rakuten_browser(keyword, 10):
-                url = item.get("affiliateUrl") or item.get("itemUrl") or ""
-                if not item.get("itemName") or not url or url in seen:
-                    continue
-                seen.add(url)
-                candidates.append(item)
-                if len(candidates) >= 30:
-                    break
+    keywords = [
+        f"{dish_name} フライパン",
+        f"{dish_name} 調理器具",
+        f"{dish_name} キッチン用品",
+    ]
+    candidates, seen = [], set()
+    for keyword in keywords:
+        for item in search_rakuten_browser(keyword, 10):
+            url = item.get("affiliateUrl") or item.get("itemUrl") or ""
+            if not item.get("itemName") or not url or url in seen:
+                continue
+            seen.add(url)
+            candidates.append(item)
             if len(candidates) >= 30:
                 break
-    elif RAKUTEN_GAS_URL and RAKUTEN_AUTOMATION_SECRET:
-        # 旧GAS方式は残すが、Webアプリ型の403を明確に表示するための互換経路。
-        candidates = search_rakuten_via_gas(keywords)
-    else:
-        raise RuntimeError("RAKUTEN_ACCESS_KEYがGitHub Secretsに未登録です。")
+        if len(candidates) >= 30:
+            break
 
-    candidates = [x for x in candidates if x.get("itemName") and (x.get("affiliateUrl") or x.get("itemUrl"))]
+    candidates = [
+        x for x in candidates
+        if x.get("itemName") and (x.get("affiliateUrl") or x.get("itemUrl"))
+    ]
     ranked = sorted(candidates, key=lambda x: _product_score(x, dish_name), reverse=True)
     selected, seen_names = [], set()
     for item in ranked:
@@ -105,11 +101,15 @@ def build_article(title, body, dish_name):
     products = choose_products(dish_name)
     parts = []
     if image_url:
-        parts.append(f'<p><img src="{escape(image_url, quote=True)}" alt="{escape(dish_name, quote=True)}" loading="lazy"></p>')
+        parts.append(
+            f'<p><img src="{escape(image_url, quote=True)}" alt="{escape(dish_name, quote=True)}" loading="lazy"></p>'
+        )
     parts.append(body)
     if products:
         parts.append("<h2>この料理で気になったキッチン用品</h2>")
-        parts.append("<p>今回の料理との相性、使う場面、レビューの反応などを見ながら、日々の自炊につなげやすいものを選びました。</p>")
+        parts.append(
+            "<p>今回の料理との相性、使う場面、レビューの反応などを見ながら、日々の自炊につなげやすいものを選びました。</p>"
+        )
         for i, item in enumerate(products):
             parts.append(f"<p><strong>{escape(item.get('itemName', 'キッチン用品'))}</strong></p>")
             parts.append(product_link(item, i))
@@ -128,7 +128,7 @@ def main():
     print("完成記事生成完了")
     print("料理:", dish_name)
     print("写真URL:", "設定済み" if find_photo_url() else "未設定")
-    print("楽天検索方式:", "GitHub Pagesブラウザ(JSONP)" if RAKUTEN_ACCESS_KEY else "GASブリッジ")
+    print("楽天検索方式:", "GitHub Pagesブラウザ(JSONP)")
     print("楽天商品リンク: 関連性・レビュー・価格を考慮して自動選定済み")
 
 
