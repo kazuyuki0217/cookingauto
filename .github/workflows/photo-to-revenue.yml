@@ -11,6 +11,7 @@ on:
     paths:
       - 'images/**'
       - 'rakuten_browser_search.py'
+      - 'article_affiliate_builder.py'
       - '.github/workflows/photo-to-revenue.yml'
 
 permissions:
@@ -68,7 +69,11 @@ jobs:
 
       - name: 楽天アフィリエイト商品を組み込む
         env:
-          RAKUTEN_PAGES_URL: https://kazuyuki0217.github.io/cookingauto/rakuten-test/
+          # 楽天Webアプリの「許可されたWebサイト」に登録済みの
+          # ブログドメインをブラウザOriginとして使用する。
+          # GitHub Pages Originでは HTTP_REFERRER_NOT_ALLOWED が発生したため、
+          # 実際のブログOriginへ切り替える。
+          RAKUTEN_PAGES_URL: https://tansinfuninkazu.hatenablog.com/
           RAKUTEN_GAS_URL: ${{ secrets.PINTEREST_GAS_URL }}
           RAKUTEN_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
         run: python article_affiliate_builder.py
@@ -115,4 +120,4 @@ jobs:
       - name: Pinterest自動投稿完了確認
         run: echo 'Pinterestへ5件の実投稿まで完了しました。'
 
-# Force a fresh push-triggered validation on the latest Rakuten browser-fetch implementation.
+# 楽天Webアプリの許可Originを実ブログへ合わせて検証
