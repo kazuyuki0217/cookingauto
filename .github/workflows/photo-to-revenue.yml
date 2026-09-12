@@ -115,4 +115,4 @@ jobs:
       - name: Pinterest自動投稿完了確認
         run: echo 'Pinterestへ5件の実投稿まで完了しました。'
 
-# Force a fresh push-triggered validation on the latest Rakuten browser implementation.
+# Force a fresh push-triggered validation on the latest Rakuten browser-fetch implementation.
