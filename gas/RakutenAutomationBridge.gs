@@ -7,11 +7,8 @@
  * PinterestAutomationBridgeと同じGAS Webアプリを利用する。
  *
  * 2026-09-12 修正:
- * 楽天API(2026-07-01)のWebアプリ型アクセス制御に合わせ、
- * 許可済みのはてなブログをOrigin/Refererとして常時明示する。
- * 403発生後だけヘッダーを付ける方式では、楽天側の
- * HTTP_REFERRER_NOT_ALLOWED 判定を正しく切り分けられないため、
- * 最初のリクエストからブラウザ由来のコンテキストを明示する。
+ * 2026年版楽天APIのHTTP Referer制限に対応。
+ * 許可済みドメインを順番に試し、楽天側で受理されるRefererを特定する。
  */
 
 function KAZU_RAKUTEN_AUTOMATION_SEARCH_(keyword, hits) {
@@ -35,26 +32,49 @@ function KAZU_RAKUTEN_AUTOMATION_SEARCH_(keyword, hits) {
   var url = KAZU_RAKUTEN_API_() + '?' + params.join('&');
   Logger.log('楽天自動化API検索開始: ' + keyword);
 
-  // 楽天アプリに登録済みの「許可されたウェブサイト」と一致させる。
-  // 2026年版APIではOrigin/Refererによるアクセス元確認が行われるため、
-  // GASのサーバーサイドUrlFetchでも両方を明示する。
-  var allowedOrigin = 'https://tansinfuninkazu.hatenablog.com';
-  var allowedReferer = 'https://tansinfuninkazu.hatenablog.com/';
-
   var response = UrlFetchApp.fetch(url, {
     method: 'get',
     muteHttpExceptions: true,
     followRedirects: true,
-    headers: {
-      'Accept': 'application/json',
-      'Origin': allowedOrigin,
-      'Referer': allowedReferer
-    }
+    headers: {'Accept': 'application/json'}
   });
 
   var code = response.getResponseCode();
   var body = response.getContentText();
-  Logger.log('楽天自動化API HTTP: ' + code);
+  Logger.log('楽天自動化API HTTP（初回）: ' + code);
+
+  if (code === 403 && body.indexOf('REQUEST_CONTEXT_BODY_HTTP_REFERRER_MISSING') !== -1) {
+    var candidates = [
+      'https://tansinfuninkazu.hatenablog.com/',
+      'https://script.google.com/',
+      'https://kazuyuki0217.github.io/'
+    ];
+
+    for (var i = 0; i < candidates.length; i++) {
+      var ref = candidates[i];
+      var origin = ref.replace(/\/$/, '');
+      Logger.log('楽天API Referer試行: ' + ref);
+
+      response = UrlFetchApp.fetch(url, {
+        method: 'get',
+        muteHttpExceptions: true,
+        followRedirects: true,
+        headers: {
+          'Accept': 'application/json',
+          'Origin': origin,
+          'Referer': ref
+        }
+      });
+
+      code = response.getResponseCode();
+      body = response.getContentText();
+      Logger.log('楽天API Referer試行結果 [' + ref + ']: HTTP ' + code);
+
+      if (code >= 200 && code < 300) break;
+      if (body.indexOf('HTTP_REFERRER_NOT_ALLOWED') !== -1) continue;
+      break;
+    }
+  }
 
   if (code < 200 || code >= 300) {
     throw new Error('楽天APIエラー HTTP ' + code + '\n' + body);
@@ -75,20 +95,13 @@ function KAZU_RAKUTEN_AUTOMATION_SEARCH_(keyword, hits) {
 }
 
 function KAZU_RAKUTEN_AUTOMATION_(body) {
-  if (!body || body.service !== 'rakuten') {
-    return null;
-  }
+  if (!body || body.service !== 'rakuten') return null;
 
   var keywords = Array.isArray(body.keywords) ? body.keywords : [];
   if (!keywords.length) {
-    return KAZU_PINTEREST_AUTOMATION_JSON_(false, {
-      error: '楽天検索キーワードがありません。'
-    });
+    return KAZU_PINTEREST_AUTOMATION_JSON_(false, {error: '楽天検索キーワードがありません。'});
   }
-
-  if (keywords.length > 5) {
-    keywords = keywords.slice(0, 5);
-  }
+  if (keywords.length > 5) keywords = keywords.slice(0, 5);
 
   var items = [];
   var seen = {};
@@ -114,11 +127,7 @@ function KAZU_RAKUTEN_AUTOMATION_(body) {
         itemUrl: itemUrl,
         affiliateUrl: affiliateUrl,
         shopName: String(item.shopName || ''),
-        imageUrl: String(
-          item.mediumImageUrls && item.mediumImageUrls.length
-            ? (item.mediumImageUrls[0].imageUrl || '')
-            : ''
-        ),
+        imageUrl: String(item.mediumImageUrls && item.mediumImageUrls.length ? (item.mediumImageUrls[0].imageUrl || '') : ''),
         reviewCount: Number(item.reviewCount || 0),
         reviewAverage: Number(item.reviewAverage || 0),
         keyword: keyword
@@ -126,8 +135,5 @@ function KAZU_RAKUTEN_AUTOMATION_(body) {
     });
   });
 
-  return KAZU_PINTEREST_AUTOMATION_JSON_(true, {
-    count: items.length,
-    items: items
-  });
+  return KAZU_PINTEREST_AUTOMATION_JSON_(true, {count: items.length, items: items});
 }
