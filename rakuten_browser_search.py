@@ -26,6 +26,35 @@ def _safe_diagnostics(diagnostics):
     return json.dumps(diagnostics, ensure_ascii=False)
 
 
+def _rakuten_error_message(result):
+    """Return a useful Rakuten error without exposing the access key."""
+    if not isinstance(result, dict):
+        return None
+
+    # Rakuten may return either {"error": ...} or
+    # {"errors": {"errorCode": ..., "errorMessage": ...}}.
+    if result.get("error"):
+        return json.dumps(result, ensure_ascii=False)
+
+    errors = result.get("errors")
+    if errors:
+        if isinstance(errors, dict):
+            code = errors.get("errorCode") or errors.get("code")
+            message = errors.get("errorMessage") or errors.get("message")
+            if code or message:
+                return json.dumps(
+                    {
+                        "errorCode": code,
+                        "errorMessage": message,
+                        "errors": errors,
+                    },
+                    ensure_ascii=False,
+                )
+        return json.dumps({"errors": errors}, ensure_ascii=False)
+
+    return None
+
+
 def search_rakuten_browser(keyword, hits=10):
     if not RAKUTEN_ACCESS_KEY:
         raise RuntimeError("RAKUTEN_ACCESS_KEY is not configured.")
@@ -55,11 +84,6 @@ def search_rakuten_browser(keyword, hits=10):
         browser = p.chromium.launch(headless=True)
         context = None
         try:
-            # Important: Rakuten's 2026 security checks are origin-aware.
-            # A top-level page.goto(api_url) is a navigation, not a browser fetch,
-            # so it is not a reliable way to reproduce the successful browser flow.
-            # We instead load our allowed GitHub Pages origin and execute fetch()
-            # inside that page. The browser then generates the Origin/Referer context.
             context = browser.new_context()
             page = context.new_page()
             page.on(
@@ -151,10 +175,11 @@ def search_rakuten_browser(keyword, hits=10):
             + _safe_diagnostics(diagnostics)
         )
 
-    if isinstance(result, dict) and result.get("error"):
+    rakuten_error = _rakuten_error_message(result)
+    if rakuten_error:
         raise RuntimeError(
             "楽天APIエラー: "
-            + json.dumps(result, ensure_ascii=False)
+            + rakuten_error
             + " | 診断: "
             + _safe_diagnostics(diagnostics)
         )
