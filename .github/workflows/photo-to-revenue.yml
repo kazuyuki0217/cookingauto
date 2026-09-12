@@ -68,7 +68,8 @@ jobs:
       - name: 楽天アフィリエイト商品を組み込む
         env:
           RAKUTEN_PAGES_URL: https://kazuyuki0217.github.io/cookingauto/rakuten-test/
-          RAKUTEN_GAS_URL: ${{ secrets.PINTEREST_GAS_URL }}
+          # 固定のGAS WebアプリURLを使用。PINTEREST_GAS_URLの誤設定で楽天取得が404になるのを防止。
+          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
           RAKUTEN_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
         run: python article_affiliate_builder.py
 
@@ -114,4 +115,4 @@ jobs:
       - name: Pinterest自動投稿完了確認
         run: echo 'Pinterestへ5件の実投稿まで完了しました。'
 
-# Force a fresh validation run with the Rakuten browser-context header fix.
+# Fix: use the confirmed current GAS Web App URL for the Rakuten bridge.
