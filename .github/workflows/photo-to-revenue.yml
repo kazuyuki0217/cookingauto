@@ -36,18 +36,6 @@ jobs:
           pip install -r requirements.txt requests playwright
           python -m playwright install --with-deps chromium
 
-      - name: 楽天Secret接続状態を確認
-        env:
-          RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
-        run: |
-          if [ -n "$RAKUTEN_ACCESS_KEY" ]; then
-            echo "楽天アクセスキー: GitHub Actionsへ正常に渡されています"
-          else
-            echo "楽天アクセスキー: GitHub Actionsへ渡っていません"
-            echo "必要なSecret名: RAKUTEN_ACCESS_KEY"
-            exit 1
-          fi
-
       - name: 入力画像を確認
         env:
           INPUT_IMAGE: ${{ inputs.image_file }}
@@ -79,7 +67,6 @@ jobs:
 
       - name: 楽天アフィリエイト商品を組み込む
         env:
-          RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
           RAKUTEN_PAGES_URL: https://kazuyuki0217.github.io/cookingauto/rakuten-test/
           RAKUTEN_GAS_URL: ${{ secrets.PINTEREST_GAS_URL }}
           RAKUTEN_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
