@@ -7,8 +7,10 @@
  * PinterestAutomationBridgeと同じGAS Webアプリを利用する。
  *
  * 2026-09-12 修正:
- * 2026年版楽天APIのHTTP Referer制限に対応。
- * 許可済みドメインを順番に試し、楽天側で受理されるRefererを特定する。
+ * 2026年版楽天APIのHTTP Referer制限を診断するため、
+ * 初回リクエストが403の場合は、楽天の許可済みWebサイト候補を順番に試す。
+ * 以前はREQUEST_CONTEXT_BODY_HTTP_REFERRER_MISSINGの場合だけ候補を試していたため、
+ * 初回403がHTTP_REFERRER_NOT_ALLOWEDだった場合に候補テストへ進まない問題があった。
  */
 
 function KAZU_RAKUTEN_AUTOMATION_SEARCH_(keyword, hits) {
@@ -43,7 +45,9 @@ function KAZU_RAKUTEN_AUTOMATION_SEARCH_(keyword, hits) {
   var body = response.getContentText();
   Logger.log('楽天自動化API HTTP（初回）: ' + code);
 
-  if (code === 403 && body.indexOf('REQUEST_CONTEXT_BODY_HTTP_REFERRER_MISSING') !== -1) {
+  // 403なら、楽天側の許可済みWebサイト候補をすべて診断する。
+  // 403の本文がMISSINGでもNOT_ALLOWEDでも候補テストを実施する。
+  if (code === 403) {
     var candidates = [
       'https://tansinfuninkazu.hatenablog.com/',
       'https://script.google.com/',
@@ -53,7 +57,7 @@ function KAZU_RAKUTEN_AUTOMATION_SEARCH_(keyword, hits) {
     for (var i = 0; i < candidates.length; i++) {
       var ref = candidates[i];
       var origin = ref.replace(/\/$/, '');
-      Logger.log('楽天API Referer試行: ' + ref);
+      Logger.log('楽天API Referer試行 [' + (i + 1) + '/3]: ' + ref);
 
       response = UrlFetchApp.fetch(url, {
         method: 'get',
@@ -70,8 +74,17 @@ function KAZU_RAKUTEN_AUTOMATION_SEARCH_(keyword, hits) {
       body = response.getContentText();
       Logger.log('楽天API Referer試行結果 [' + ref + ']: HTTP ' + code);
 
-      if (code >= 200 && code < 300) break;
-      if (body.indexOf('HTTP_REFERRER_NOT_ALLOWED') !== -1) continue;
+      if (code >= 200 && code < 300) {
+        Logger.log('楽天API Referer採用: ' + ref);
+        break;
+      }
+
+      if (body.indexOf('HTTP_REFERRER_NOT_ALLOWED') !== -1 ||
+          body.indexOf('REQUEST_CONTEXT_BODY_HTTP_REFERRER_MISSING') !== -1) {
+        continue;
+      }
+
+      // Referer制限以外のエラーは、その時点で終了する。
       break;
     }
   }
