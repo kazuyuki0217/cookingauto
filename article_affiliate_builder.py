@@ -3,17 +3,13 @@ import re
 from html import escape
 from pathlib import Path
 import requests
+from rakuten_browser_search import search_rakuten_browser
 
-# 楽天の認証情報はGAS側のScript Propertiesで管理する。
-# GitHub Actionsへ楽天アクセスキーを渡さない構成を優先する。
+# 楽天Webアプリ型はサーバーからのUrlFetchでは403になるため、
+# GitHub Pages上のブラウザを経由してJSONP検索する。
+RAKUTEN_ACCESS_KEY = os.environ.get("RAKUTEN_ACCESS_KEY", "").strip()
 RAKUTEN_GAS_URL = os.environ.get("RAKUTEN_GAS_URL", "").strip()
 RAKUTEN_AUTOMATION_SECRET = os.environ.get("RAKUTEN_AUTOMATION_SECRET", "").strip()
-
-# 旧直接API方式との互換用。ブリッジが未設定の場合のみ利用する。
-RAKUTEN_APP_ID = os.environ.get("RAKUTEN_APP_ID", "5db6e350-5a71-4843-8d29-cf894bef88df")
-RAKUTEN_AFFILIATE_ID = os.environ.get("RAKUTEN_AFFILIATE_ID", "56e8483c.b8c4995b.56e8483d.205a3086")
-RAKUTEN_ACCESS_KEY = os.environ.get("RAKUTEN_ACCESS_KEY", "").strip()
-RAKUTEN_API = "https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701"
 
 
 def find_photo_url():
@@ -24,40 +20,15 @@ def find_photo_url():
 
 
 def search_rakuten_via_gas(keywords):
-    if not RAKUTEN_GAS_URL:
-        raise RuntimeError("RAKUTEN_GAS_URL is not configured.")
-    if not RAKUTEN_AUTOMATION_SECRET:
-        raise RuntimeError("RAKUTEN_AUTOMATION_SECRET is not configured.")
-
-    payload = {
-        "service": "rakuten",
-        "secret": RAKUTEN_AUTOMATION_SECRET,
-        "keywords": keywords[:5],
-    }
+    if not RAKUTEN_GAS_URL or not RAKUTEN_AUTOMATION_SECRET:
+        raise RuntimeError("楽天ブラウザ検索の設定がありません。RAKUTEN_ACCESS_KEYをGitHub Secretsへ登録してください。")
+    payload = {"service": "rakuten", "secret": RAKUTEN_AUTOMATION_SECRET, "keywords": keywords[:5]}
     response = requests.post(RAKUTEN_GAS_URL, json=payload, timeout=60)
     response.raise_for_status()
     data = response.json()
     if not data.get("success"):
         raise RuntimeError("GAS楽天ブリッジエラー: " + str(data.get("error", "不明なエラー")))
     return data.get("items", [])
-
-
-def search_rakuten_direct(keyword, hits=10):
-    if not RAKUTEN_ACCESS_KEY:
-        raise RuntimeError("楽天APIの認証情報がGAS側にあるため、GitHubから直接検索できません。")
-    params = {
-        "applicationId": RAKUTEN_APP_ID,
-        "accessKey": RAKUTEN_ACCESS_KEY,
-        "affiliateId": RAKUTEN_AFFILIATE_ID,
-        "keyword": keyword,
-        "hits": hits,
-        "page": 1,
-        "format": "json",
-        "formatVersion": 2,
-    }
-    r = requests.get(RAKUTEN_API, params=params, timeout=30)
-    r.raise_for_status()
-    return r.json().get("items", [])
 
 
 def _tokens(text):
@@ -67,49 +38,30 @@ def _tokens(text):
 
 def _product_score(item, dish_name):
     name = str(item.get("itemName", ""))
-    dish_tokens = _tokens(dish_name)
-    name_tokens = _tokens(name)
-    relevance = len(dish_tokens & name_tokens) * 8
-
-    # 料理から自然につながりやすい調理用品を加点。
-    tool_terms = {
-        "フライパン": 16, "鍋": 14, "包丁": 12, "まな板": 10,
-        "キッチン": 8, "調理": 8, "保存容器": 7, "ボウル": 6,
-        "トング": 5, "菜箸": 5, "ヘラ": 5, "油": 4,
-    }
+    relevance = len(_tokens(dish_name) & _tokens(name)) * 8
+    tool_terms = {"フライパン":16,"鍋":14,"包丁":12,"まな板":10,"キッチン":8,"調理":8,"保存容器":7,"ボウル":6,"トング":5,"菜箸":5,"ヘラ":5,"油":4}
     for term, points in tool_terms.items():
         if term in name:
             relevance += points
-
     rating = float(item.get("reviewAverage", 0) or 0)
     review_count = int(item.get("reviewCount", 0) or 0)
     price = float(item.get("itemPrice", 0) or 0)
-
     score = relevance + rating * 4 + min(review_count, 1000) / 100
-
-    # 高すぎる商品だけに偏らず、日常の自炊用品として買いやすい価格帯を軽く加点。
     if 1000 <= price <= 15000:
         score += 4
     elif 15000 < price <= 30000:
         score += 1
-
     return score
 
 
 def choose_products(dish_name):
-    keywords = [
-        f"{dish_name} フライパン",
-        f"{dish_name} 調理器具",
-        f"{dish_name} キッチン用品",
-    ]
+    keywords = [f"{dish_name} フライパン", f"{dish_name} 調理器具", f"{dish_name} キッチン用品"]
 
-    if RAKUTEN_GAS_URL and RAKUTEN_AUTOMATION_SECRET:
-        candidates = search_rakuten_via_gas(keywords)
-    else:
+    if RAKUTEN_ACCESS_KEY:
         candidates, seen = [], set()
         for keyword in keywords:
-            for item in search_rakuten_direct(keyword, 10):
-                url = item.get("affiliateUrl", "")
+            for item in search_rakuten_browser(keyword, 10):
+                url = item.get("affiliateUrl") or item.get("itemUrl") or ""
                 if not item.get("itemName") or not url or url in seen:
                     continue
                 seen.add(url)
@@ -118,20 +70,15 @@ def choose_products(dish_name):
                     break
             if len(candidates) >= 30:
                 break
+    elif RAKUTEN_GAS_URL and RAKUTEN_AUTOMATION_SECRET:
+        # 旧GAS方式は残すが、Webアプリ型の403を明確に表示するための互換経路。
+        candidates = search_rakuten_via_gas(keywords)
+    else:
+        raise RuntimeError("RAKUTEN_ACCESS_KEYがGitHub Secretsに未登録です。")
 
-    candidates = [
-        x for x in candidates
-        if x.get("itemName") and (x.get("affiliateUrl") or x.get("itemUrl"))
-    ]
-
-    ranked = sorted(
-        candidates,
-        key=lambda x: _product_score(x, dish_name),
-        reverse=True,
-    )
-
-    selected = []
-    seen_names = set()
+    candidates = [x for x in candidates if x.get("itemName") and (x.get("affiliateUrl") or x.get("itemUrl"))]
+    ranked = sorted(candidates, key=lambda x: _product_score(x, dish_name), reverse=True)
+    selected, seen_names = [], set()
     for item in ranked:
         normalized = re.sub(r"\s+", "", str(item.get("itemName", ""))).lower()
         if normalized in seen_names:
@@ -140,7 +87,6 @@ def choose_products(dish_name):
         selected.append(item)
         if len(selected) >= 3:
             break
-
     return selected
 
 
@@ -182,7 +128,7 @@ def main():
     print("完成記事生成完了")
     print("料理:", dish_name)
     print("写真URL:", "設定済み" if find_photo_url() else "未設定")
-    print("楽天検索方式:", "GASブリッジ（アクセスキー非公開）" if RAKUTEN_GAS_URL else "直接API（旧方式）")
+    print("楽天検索方式:", "GitHub Pagesブラウザ(JSONP)" if RAKUTEN_ACCESS_KEY else "GASブリッジ")
     print("楽天商品リンク: 関連性・レビュー・価格を考慮して自動選定済み")
 
 
