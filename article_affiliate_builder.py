@@ -5,8 +5,6 @@ from pathlib import Path
 
 import requests
 
-from rakuten_browser_search import search_rakuten_browser
-
 # 楽天アクセスキーはGitHub Secretへ固定保存しない。
 # GASのScript Propertiesに保存されたキーを、既存の認証済みブリッジから
 # 必要な実行時だけ取得し、その値をGitHub Actionsのメモリ上でのみ使用する。
@@ -97,6 +95,12 @@ def _product_score(item, dish_name):
 def choose_products(dish_name):
     access_key = get_rakuten_access_key()
 
+    # 取得したキーはこのプロセス内の環境変数へだけ渡し、
+    # 既存のブラウザ検索実装との互換性を保つ。
+    os.environ["RAKUTEN_ACCESS_KEY"] = access_key
+    os.environ["RAKUTEN_PAGES_URL"] = RAKUTEN_PAGES_URL
+    from rakuten_browser_search import search_rakuten_browser
+
     keywords = [
         f"{dish_name} フライパン",
         f"{dish_name} 調理器具",
@@ -104,11 +108,7 @@ def choose_products(dish_name):
     ]
     candidates, seen = [], set()
     for keyword in keywords:
-        for item in search_rakuten_browser(
-            keyword,
-            10,
-            access_key=access_key,
-        ):
+        for item in search_rakuten_browser(keyword, 10):
             url = item.get("affiliateUrl") or item.get("itemUrl") or ""
             if not item.get("itemName") or not url or url in seen:
                 continue
