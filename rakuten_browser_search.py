@@ -1,6 +1,6 @@
 import json
 import os
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
@@ -17,10 +17,21 @@ def search_rakuten_browser(keyword, hits=10):
 
     keyword = str(keyword or "").strip() or "フライパン"
     url = RAKUTEN_PAGES_URL + "?mode=automation&keyword=" + quote(keyword)
+    parsed = urlparse(RAKUTEN_PAGES_URL)
+    origin = parsed.scheme + "://" + parsed.netloc
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        # Rakuten's Web-application type checks the browser request context.
+        # Explicitly send the registered GitHub Pages origin and referer so the
+        # JSONP request is evaluated as coming from the allowed website.
+        context = browser.new_context(
+            extra_http_headers={
+                "Origin": origin,
+                "Referer": RAKUTEN_PAGES_URL,
+            }
+        )
+        page = context.new_page()
         page.add_init_script(
             "window.__RAKUTEN_AUTOMATION_KEY = "
             + json.dumps(RAKUTEN_ACCESS_KEY)
@@ -37,11 +48,13 @@ def search_rakuten_browser(keyword, hits=10):
             )
         except PlaywrightTimeoutError:
             text = page.locator("#result").inner_text()
+            context.close()
             browser.close()
             raise RuntimeError("楽天ブラウザ検索タイムアウト: " + text[:2000])
 
         result = page.evaluate("() => window.__RAKUTEN_RESULT || null")
         text = page.locator("#result").inner_text()
+        context.close()
         browser.close()
 
     if not result:
