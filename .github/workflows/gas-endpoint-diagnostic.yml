@@ -1,0 +1,26 @@
+name: GAS Endpoint Diagnostic
+on:
+  push:
+    paths:
+      - '.github/workflows/gas-endpoint-diagnostic.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test GAS Web App
+        env:
+          GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2FvI6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
+        run: |
+          set +e
+          echo '=== GET ==='
+          curl -sS -L -o /tmp/get.txt -w 'HTTP=%{http_code}\nFINAL=%{url_effective}\nTYPE=%{content_type}\n' "$GAS_URL"
+          echo 'BODY_HEAD:'
+          head -c 300 /tmp/get.txt | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g'
+          echo
+          echo '=== POST ==='
+          curl -sS -L -X POST -H 'Content-Type: application/json' --data '{"service":"healthcheck"}' -o /tmp/post.txt -w 'HTTP=%{http_code}\nFINAL=%{url_effective}\nTYPE=%{content_type}\n' "$GAS_URL"
+          echo 'BODY_HEAD:'
+          head -c 300 /tmp/post.txt | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g'
+          echo
