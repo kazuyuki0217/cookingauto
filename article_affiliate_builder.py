@@ -2,12 +2,16 @@ import os
 import re
 from html import escape
 from pathlib import Path
+
+import requests
+
 from rakuten_browser_search import search_rakuten_browser
 
-# 楽天Webアプリ型はサーバーからのUrlFetchでは403になるため、
-# GitHub Pages上のブラウザを経由してJSONP検索する。
-# RAKUTEN_ACCESS_KEYが無い場合は旧GAS方式へ戻さず、ここで明確に停止する。
-RAKUTEN_ACCESS_KEY = os.environ.get("RAKUTEN_ACCESS_KEY", "").strip()
+# 楽天アクセスキーはGitHub Secretへ固定保存しない。
+# GASのScript Propertiesに保存されたキーを、既存の認証済みブリッジから
+# 必要な実行時だけ取得し、その値をGitHub Actionsのメモリ上でのみ使用する。
+RAKUTEN_GAS_URL = os.environ.get("RAKUTEN_GAS_URL", "").strip()
+RAKUTEN_AUTOMATION_SECRET = os.environ.get("RAKUTEN_AUTOMATION_SECRET", "").strip()
 RAKUTEN_PAGES_URL = os.environ.get(
     "RAKUTEN_PAGES_URL",
     "https://kazuyuki0217.github.io/cookingauto/rakuten-test/",
@@ -21,6 +25,39 @@ def find_photo_url():
     return url if url.startswith(("https://", "http://")) else ""
 
 
+def get_rakuten_access_key():
+    if not RAKUTEN_GAS_URL:
+        raise RuntimeError("RAKUTEN_GAS_URLが設定されていません。")
+    if not RAKUTEN_AUTOMATION_SECRET:
+        raise RuntimeError("楽天ブリッジ認証Secretが設定されていません。")
+
+    response = requests.post(
+        RAKUTEN_GAS_URL,
+        json={
+            "service": "rakuten_key",
+            "secret": RAKUTEN_AUTOMATION_SECRET,
+        },
+        timeout=30,
+    )
+    if response.status_code < 200 or response.status_code >= 300:
+        raise RuntimeError(
+            f"GAS楽天認証ブリッジHTTP {response.status_code}: {response.text[:1000]}"
+        )
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise RuntimeError("GAS楽天認証ブリッジのJSON解析に失敗しました。") from exc
+
+    if not data.get("success") or not data.get("accessKey"):
+        raise RuntimeError(
+            "GASから楽天アクセスキーを取得できませんでした。"
+            + (f" 詳細: {data.get('error')}" if data.get("error") else "")
+        )
+
+    return str(data["accessKey"]).strip()
+
+
 def _tokens(text):
     text = str(text or "").lower()
     return {x for x in re.split(r"[^0-9a-zぁ-んァ-ヶ一-龥]+", text) if len(x) >= 2}
@@ -29,7 +66,20 @@ def _tokens(text):
 def _product_score(item, dish_name):
     name = str(item.get("itemName", ""))
     relevance = len(_tokens(dish_name) & _tokens(name)) * 8
-    tool_terms = {"フライパン":16,"鍋":14,"包丁":12,"まな板":10,"キッチン":8,"調理":8,"保存容器":7,"ボウル":6,"トング":5,"菜箸":5,"ヘラ":5,"油":4}
+    tool_terms = {
+        "フライパン": 16,
+        "鍋": 14,
+        "包丁": 12,
+        "まな板": 10,
+        "キッチン": 8,
+        "調理": 8,
+        "保存容器": 7,
+        "ボウル": 6,
+        "トング": 5,
+        "菜箸": 5,
+        "ヘラ": 5,
+        "油": 4,
+    }
     for term, points in tool_terms.items():
         if term in name:
             relevance += points
@@ -45,11 +95,7 @@ def _product_score(item, dish_name):
 
 
 def choose_products(dish_name):
-    if not RAKUTEN_ACCESS_KEY:
-        raise RuntimeError(
-            "楽天アクセスキーがGitHub Actions Secret RAKUTEN_ACCESS_KEYに未登録です。"
-            "旧GAS方式にはフォールバックしません。"
-        )
+    access_key = get_rakuten_access_key()
 
     keywords = [
         f"{dish_name} フライパン",
@@ -58,7 +104,11 @@ def choose_products(dish_name):
     ]
     candidates, seen = [], set()
     for keyword in keywords:
-        for item in search_rakuten_browser(keyword, 10):
+        for item in search_rakuten_browser(
+            keyword,
+            10,
+            access_key=access_key,
+        ):
             url = item.get("affiliateUrl") or item.get("itemUrl") or ""
             if not item.get("itemName") or not url or url in seen:
                 continue
@@ -128,7 +178,7 @@ def main():
     print("完成記事生成完了")
     print("料理:", dish_name)
     print("写真URL:", "設定済み" if find_photo_url() else "未設定")
-    print("楽天検索方式:", "GitHub Pagesブラウザ(JSONP)")
+    print("楽天検索方式:", "GAS保存キー取得 → GitHub Pagesブラウザ(JSONP)")
     print("楽天商品リンク: 関連性・レビュー・価格を考慮して自動選定済み")
 
 
