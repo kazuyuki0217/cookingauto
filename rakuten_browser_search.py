@@ -55,13 +55,12 @@ def search_rakuten_browser(keyword, hits=10):
         browser = p.chromium.launch(headless=True)
         context = None
         try:
-            # Validation marker: test the latest Origin + Referer strategy.
-            context = browser.new_context(
-                extra_http_headers={
-                    "Origin": origin,
-                    "Referer": RAKUTEN_PAGES_URL,
-                }
-            )
+            # Important: Rakuten's 2026 security checks are origin-aware.
+            # A top-level page.goto(api_url) is a navigation, not a browser fetch,
+            # so it is not a reliable way to reproduce the successful browser flow.
+            # We instead load our allowed GitHub Pages origin and execute fetch()
+            # inside that page. The browser then generates the Origin/Referer context.
+            context = browser.new_context()
             page = context.new_page()
             page.on(
                 "requestfailed",
@@ -74,24 +73,45 @@ def search_rakuten_browser(keyword, hits=10):
             )
 
             page.goto(RAKUTEN_PAGES_URL, wait_until="domcontentloaded", timeout=30000)
-            response = page.goto(api_url, wait_until="domcontentloaded", timeout=30000)
 
-            if response is not None:
-                diagnostics["responses"].append({
-                    "url": _safe_api_url(response.url),
-                    "status": response.status,
-                    "statusText": response.status_text,
-                    "contentType": response.headers.get("content-type", ""),
-                })
-                text = response.text()
-            else:
-                text = page.locator("body").inner_text()
+            fetch_result = page.evaluate(
+                """
+                async ({apiUrl, origin, referer}) => {
+                    const response = await fetch(apiUrl, {
+                        method: 'GET',
+                        mode: 'cors',
+                        credentials: 'omit',
+                        cache: 'no-store',
+                        referrer: referer,
+                        referrerPolicy: 'unsafe-url'
+                    });
+                    const text = await response.text();
+                    return {
+                        status: response.status,
+                        statusText: response.statusText,
+                        contentType: response.headers.get('content-type') || '',
+                        text: text,
+                        browserOrigin: location.origin,
+                        browserReferer: document.location.href
+                    };
+                }
+                """,
+                {"apiUrl": api_url, "origin": origin, "referer": RAKUTEN_PAGES_URL},
+            )
 
             diagnostics["navigation"].append({
-                "origin": origin,
-                "referer": RAKUTEN_PAGES_URL,
+                "origin": fetch_result.get("browserOrigin") or origin,
+                "referer": fetch_result.get("browserReferer") or RAKUTEN_PAGES_URL,
                 "api": _safe_api_url(api_url),
+                "transport": "browser_fetch",
             })
+            diagnostics["responses"].append({
+                "url": _safe_api_url(api_url),
+                "status": fetch_result.get("status"),
+                "statusText": fetch_result.get("statusText", ""),
+                "contentType": fetch_result.get("contentType", ""),
+            })
+            text = fetch_result.get("text", "")
 
             if not text.strip():
                 raise RuntimeError(
@@ -111,6 +131,13 @@ def search_rakuten_browser(keyword, hits=10):
         except PlaywrightTimeoutError as exc:
             raise RuntimeError(
                 "楽天ブラウザ検索タイムアウト。診断: "
+                + _safe_diagnostics(diagnostics)
+            ) from exc
+        except Exception as exc:
+            raise RuntimeError(
+                "楽天ブラウザ検索通信エラー: "
+                + str(exc)
+                + " | 診断: "
                 + _safe_diagnostics(diagnostics)
             ) from exc
         finally:
