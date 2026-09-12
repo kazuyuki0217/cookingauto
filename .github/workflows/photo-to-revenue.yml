@@ -74,7 +74,9 @@ jobs:
           # GitHub Pages Originでは HTTP_REFERRER_NOT_ALLOWED が発生したため、
           # 実際のブログOriginへ切り替える。
           RAKUTEN_PAGES_URL: https://tansinfuninkazu.hatenablog.com/
-          RAKUTEN_GAS_URL: ${{ secrets.PINTEREST_GAS_URL }}
+          # 現在のGAS WebアプリのデプロイURLを直接指定。
+          # PINTEREST_GAS_URLの古い値によるHTTP 404を切り離す。
+          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2FvI6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
           RAKUTEN_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
         run: python article_affiliate_builder.py
 
@@ -121,4 +123,4 @@ jobs:
         run: echo 'Pinterestへ5件の実投稿まで完了しました。'
 
 # 楽天Webアプリの許可Originを実ブログへ合わせて検証
-# 2026-09-13: 最新GASブリッジ配置後の楽天Origin検証トリガー
+# 2026-09-13: GAS WebアプリURLを固定して404原因を切り分け
