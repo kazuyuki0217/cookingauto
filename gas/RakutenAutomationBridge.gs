@@ -7,9 +7,9 @@
  * PinterestAutomationBridgeと同じGAS Webアプリを利用する。
  *
  * 2026-09-12 修正:
- * 楽天APIの HTTP_REFERRER_NOT_ALLOWED を回避するため、
- * 自動化経路では Origin / Referer ヘッダーを送信せず、
- * 楽天公式仕様どおり applicationId + accessKey をクエリで指定する。
+ * 楽天APIから REQUEST_CONTEXT_BODY_HTTP_REFERRER_MISSING が返った場合、
+ * はてなブログをリクエスト元として明示して再試行する。
+ * 通常時は余計なヘッダーを付けず、403時だけ再試行する。
  */
 
 function KAZU_RAKUTEN_AUTOMATION_SEARCH_(keyword, hits) {
@@ -44,7 +44,32 @@ function KAZU_RAKUTEN_AUTOMATION_SEARCH_(keyword, hits) {
 
   var code = response.getResponseCode();
   var body = response.getContentText();
-  Logger.log('楽天自動化API HTTP: ' + code);
+  Logger.log('楽天自動化API HTTP（初回）: ' + code);
+
+  // 現在の楽天APIがRefererを要求する場合だけ再試行する。
+  // 余計なRefererを常時送ると、逆にNOT_ALLOWEDになる可能性があるため、
+  // 通常リクエストは従来どおりシンプルに保つ。
+  if (
+    code === 403 &&
+    body.indexOf('REQUEST_CONTEXT_BODY_HTTP_REFERRER_MISSING') !== -1
+  ) {
+    Logger.log('楽天APIがRefererを要求したため、はてなブログURLを付けて再試行します。');
+
+    response = UrlFetchApp.fetch(url, {
+      method: 'get',
+      muteHttpExceptions: true,
+      followRedirects: true,
+      headers: {
+        'Accept': 'application/json',
+        'Origin': 'https://tansinfuninkazu.hatenablog.com',
+        'Referer': 'https://tansinfuninkazu.hatenablog.com/'
+      }
+    });
+
+    code = response.getResponseCode();
+    body = response.getContentText();
+    Logger.log('楽天自動化API HTTP（Referer再試行）: ' + code);
+  }
 
   if (code < 200 || code >= 300) {
     throw new Error('楽天APIエラー HTTP ' + code + '\n' + body);
@@ -87,8 +112,6 @@ function KAZU_RAKUTEN_AUTOMATION_(body) {
     keyword = String(keyword || '').trim();
     if (!keyword) return;
 
-    // 旧 RAKUTEN2_search() はアプリ側のHTTP Referer設定に依存するため、
-    // GitHub Actionsからの自動化経路では公式REST APIを直接呼び出す。
     var result = KAZU_RAKUTEN_AUTOMATION_SEARCH_(keyword, 10);
     var rows = result && result.items ? result.items : [];
 
