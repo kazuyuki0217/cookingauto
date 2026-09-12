@@ -1,4 +1,5 @@
 import os
+import re
 from html import escape
 from pathlib import Path
 import requests
@@ -59,6 +60,42 @@ def search_rakuten_direct(keyword, hits=10):
     return r.json().get("items", [])
 
 
+def _tokens(text):
+    text = str(text or "").lower()
+    return {x for x in re.split(r"[^0-9a-zぁ-んァ-ヶ一-龥]+", text) if len(x) >= 2}
+
+
+def _product_score(item, dish_name):
+    name = str(item.get("itemName", ""))
+    dish_tokens = _tokens(dish_name)
+    name_tokens = _tokens(name)
+    relevance = len(dish_tokens & name_tokens) * 8
+
+    # 料理から自然につながりやすい調理用品を加点。
+    tool_terms = {
+        "フライパン": 16, "鍋": 14, "包丁": 12, "まな板": 10,
+        "キッチン": 8, "調理": 8, "保存容器": 7, "ボウル": 6,
+        "トング": 5, "菜箸": 5, "ヘラ": 5, "油": 4,
+    }
+    for term, points in tool_terms.items():
+        if term in name:
+            relevance += points
+
+    rating = float(item.get("reviewAverage", 0) or 0)
+    review_count = int(item.get("reviewCount", 0) or 0)
+    price = float(item.get("itemPrice", 0) or 0)
+
+    score = relevance + rating * 4 + min(review_count, 1000) / 100
+
+    # 高すぎる商品だけに偏らず、日常の自炊用品として買いやすい価格帯を軽く加点。
+    if 1000 <= price <= 15000:
+        score += 4
+    elif 15000 < price <= 30000:
+        score += 1
+
+    return score
+
+
 def choose_products(dish_name):
     keywords = [
         f"{dish_name} フライパン",
@@ -66,7 +103,6 @@ def choose_products(dish_name):
         f"{dish_name} キッチン用品",
     ]
 
-    # 本番はGASブリッジを使用。楽天アクセスキーをGitHubへ渡さない。
     if RAKUTEN_GAS_URL and RAKUTEN_AUTOMATION_SECRET:
         candidates = search_rakuten_via_gas(keywords)
     else:
@@ -78,21 +114,34 @@ def choose_products(dish_name):
                     continue
                 seen.add(url)
                 candidates.append(item)
-                if len(candidates) >= 9:
+                if len(candidates) >= 30:
                     break
-            if len(candidates) >= 9:
+            if len(candidates) >= 30:
                 break
 
-    # レビュー評価だけでなく、レビュー件数も加味して購入候補を選ぶ。
-    candidates = [x for x in candidates if x.get("itemName") and (x.get("affiliateUrl") or x.get("itemUrl"))]
-    candidates.sort(
-        key=lambda x: (
-            float(x.get("reviewAverage", 0) or 0),
-            int(x.get("reviewCount", 0) or 0),
-        ),
+    candidates = [
+        x for x in candidates
+        if x.get("itemName") and (x.get("affiliateUrl") or x.get("itemUrl"))
+    ]
+
+    ranked = sorted(
+        candidates,
+        key=lambda x: _product_score(x, dish_name),
         reverse=True,
     )
-    return candidates[:3]
+
+    selected = []
+    seen_names = set()
+    for item in ranked:
+        normalized = re.sub(r"\s+", "", str(item.get("itemName", ""))).lower()
+        if normalized in seen_names:
+            continue
+        seen_names.add(normalized)
+        selected.append(item)
+        if len(selected) >= 3:
+            break
+
+    return selected
 
 
 def product_link(item, index):
@@ -114,7 +163,7 @@ def build_article(title, body, dish_name):
     parts.append(body)
     if products:
         parts.append("<h2>この料理で気になったキッチン用品</h2>")
-        parts.append("<p>今回の料理を作っていて、あると調理や片付けが少し楽になりそうなものを選びました。</p>")
+        parts.append("<p>今回の料理との相性、使う場面、レビューの反応などを見ながら、日々の自炊につなげやすいものを選びました。</p>")
         for i, item in enumerate(products):
             parts.append(f"<p><strong>{escape(item.get('itemName', 'キッチン用品'))}</strong></p>")
             parts.append(product_link(item, i))
@@ -134,7 +183,7 @@ def main():
     print("料理:", dish_name)
     print("写真URL:", "設定済み" if find_photo_url() else "未設定")
     print("楽天検索方式:", "GASブリッジ（アクセスキー非公開）" if RAKUTEN_GAS_URL else "直接API（旧方式）")
-    print("楽天商品リンク: 自動選定済み")
+    print("楽天商品リンク: 関連性・レビュー・価格を考慮して自動選定済み")
 
 
 if __name__ == "__main__":
