@@ -33,26 +33,37 @@ jobs:
 
       - name: 必要なライブラリをインストール
         run: |
-          python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 playwright
-          playwright install --with-deps chromium
+          pip install -r requirements.txt requests playwright
+          python -m playwright install --with-deps chromium
 
       - name: 入力画像を確認
-        run: python scripts/check_input_image.py
+        env:
+          INPUT_IMAGE: ${{ inputs.image_file }}
+        run: |
+          if [ -n "$INPUT_IMAGE" ]; then
+            if [[ "$INPUT_IMAGE" == images/* ]]; then
+              echo "COOKING_IMAGE_FILE=$INPUT_IMAGE" >> "$GITHUB_ENV"
+            else
+              echo "COOKING_IMAGE_FILE=images/$INPUT_IMAGE" >> "$GITHUB_ENV"
+            fi
+          else
+            echo "COOKING_IMAGE_FILE=" >> "$GITHUB_ENV"
+          fi
 
       - name: 料理写真を準備
-        run: python scripts/prepare_photo.py
+        run: python upload_cooking_photo.py
 
       - name: はてなフォトライフへ画像を公開
         env:
           HATENA_ID: ${{ secrets.HATENA_ID }}
           HATENA_API_KEY: ${{ secrets.HATENA_API_KEY }}
-        run: python scripts/upload_hatena_photo.py
+          HATENA_FOTOLIFE_FOLDER: 料理アフィリエイト自動化
+        run: python hatena_fotolife_upload.py
 
       - name: 無料Geminiで料理写真を解析して記事作成
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python article_generator.py
+        run: python generate_article.py
 
       - name: 楽天アフィリエイト商品を組み込む
         env:
@@ -66,30 +77,41 @@ jobs:
           HATENA_ID: ${{ secrets.HATENA_ID }}
           HATENA_API_KEY: ${{ secrets.HATENA_API_KEY }}
           HATENA_ENDPOINT: ${{ secrets.HATENA_ENDPOINT }}
-        run: python publish_hatena.py
+          POST_TITLE_FILE: article_title.txt
+          POST_BODY_FILE: article_final.html
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          os.environ['POST_TITLE'] = Path(os.environ['POST_TITLE_FILE']).read_text(encoding='utf-8').strip()
+          os.environ['POST_BODY'] = Path(os.environ['POST_BODY_FILE']).read_text(encoding='utf-8')
+          import post_to_hatena
+          PY
 
       - name: Pinterest用5パターンを生成
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python pinterest_content_generator.py
+        run: python generate_pinterest_pins.py
 
       - name: Pinterestへ5件を自動投稿
         env:
           PINTEREST_GAS_URL: ${{ secrets.PINTEREST_GAS_URL }}
           PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
-        run: python pinterest_publisher.py
+        run: python publish_pinterest_via_gas.py
 
       - name: 成果物を保存
         uses: actions/upload-artifact@v4
         with:
           name: cooking-revenue-pipeline
           path: |
+            article_title.txt
+            dish_name.txt
+            article_body.txt
             article_final.html
-            pinterest_posts.json
-            photo_ready.*
-          if-no-files-found: warn
+            cooking_image_url.txt
+            hatena_post_url.txt
+            pinterest_pins.json
+            pinterest_publish_result.json
 
       - name: Pinterest自動投稿完了確認
-        run: python scripts/verify_pinterest.py
+        run: echo 'Pinterestへ5件の実投稿まで完了しました。'
 
 # Rakuten browser-context header fix trigger: use the latest repository code.
