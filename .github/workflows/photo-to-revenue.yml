@@ -10,6 +10,7 @@ on:
   push:
     paths:
       - 'images/**'
+      - 'rakuten_browser_search.py'
       - '.github/workflows/photo-to-revenue.yml'
 
 permissions:
