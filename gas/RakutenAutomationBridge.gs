@@ -5,7 +5,64 @@
  * GAS Script Propertiesに保存された楽天API認証情報を使って商品検索する。
  * 楽天のアクセスキーはGitHubへ渡さない。
  * PinterestAutomationBridgeと同じGAS Webアプリを利用する。
+ *
+ * 2026-09-12 修正:
+ * 楽天APIの HTTP_REFERRER_NOT_ALLOWED を回避するため、
+ * 自動化経路では Origin / Referer ヘッダーを送信せず、
+ * 楽天公式仕様どおり applicationId + accessKey をクエリで指定する。
  */
+
+function KAZU_RAKUTEN_AUTOMATION_SEARCH_(keyword, hits) {
+  keyword = String(keyword || '').trim() || 'フライパン';
+  hits = Number(hits || 10);
+  if (hits < 1) hits = 10;
+  if (hits > 30) hits = 30;
+
+  var key = KAZU_RAKUTEN_KEY_();
+  var params = [
+    'applicationId=' + encodeURIComponent(KAZU_RAKUTEN_APP_ID_()),
+    'accessKey=' + encodeURIComponent(key),
+    'affiliateId=' + encodeURIComponent(KAZU_RAKUTEN_AFFILIATE_ID_()),
+    'keyword=' + encodeURIComponent(keyword),
+    'hits=' + encodeURIComponent(hits),
+    'page=1',
+    'format=json',
+    'formatVersion=2'
+  ];
+
+  var url = KAZU_RAKUTEN_API_() + '?' + params.join('&');
+  Logger.log('楽天自動化API検索開始: ' + keyword);
+
+  var response = UrlFetchApp.fetch(url, {
+    method: 'get',
+    muteHttpExceptions: true,
+    followRedirects: true,
+    headers: {
+      'Accept': 'application/json'
+    }
+  });
+
+  var code = response.getResponseCode();
+  var body = response.getContentText();
+  Logger.log('楽天自動化API HTTP: ' + code);
+
+  if (code < 200 || code >= 300) {
+    throw new Error('楽天APIエラー HTTP ' + code + '\n' + body);
+  }
+
+  var data;
+  try {
+    data = JSON.parse(body);
+  } catch (e) {
+    throw new Error('楽天API JSON解析エラー\n' + body);
+  }
+
+  if (!data.items || !data.items.length) {
+    throw new Error('楽天商品が見つかりません。検索語: ' + keyword);
+  }
+
+  return data;
+}
 
 function KAZU_RAKUTEN_AUTOMATION_(body) {
   if (!body || body.service !== 'rakuten') {
@@ -30,7 +87,9 @@ function KAZU_RAKUTEN_AUTOMATION_(body) {
     keyword = String(keyword || '').trim();
     if (!keyword) return;
 
-    var result = RAKUTEN2_search(keyword);
+    // 旧 RAKUTEN2_search() はアプリ側のHTTP Referer設定に依存するため、
+    // GitHub Actionsからの自動化経路では公式REST APIを直接呼び出す。
+    var result = KAZU_RAKUTEN_AUTOMATION_SEARCH_(keyword, 10);
     var rows = result && result.items ? result.items : [];
 
     rows.forEach(function(item) {
@@ -47,7 +106,11 @@ function KAZU_RAKUTEN_AUTOMATION_(body) {
         itemUrl: itemUrl,
         affiliateUrl: affiliateUrl,
         shopName: String(item.shopName || ''),
-        imageUrl: String(item.imageUrl || ''),
+        imageUrl: String(
+          item.mediumImageUrls && item.mediumImageUrls.length
+            ? (item.mediumImageUrls[0].imageUrl || '')
+            : ''
+        ),
         reviewCount: Number(item.reviewCount || 0),
         reviewAverage: Number(item.reviewAverage || 0),
         keyword: keyword
