@@ -114,4 +114,4 @@ jobs:
       - name: Pinterest自動投稿完了確認
         run: echo 'Pinterestへ5件の実投稿まで完了しました。'
 
-# Rakuten browser-context header fix trigger: use the latest repository code.
+# Force a fresh validation run with the Rakuten browser-context header fix.
