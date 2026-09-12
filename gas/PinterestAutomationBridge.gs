@@ -5,7 +5,7 @@
  * Code.gsに保存されているPinterest OAuthトークンを利用して投稿する。
  *
  * 楽天商品検索も同じ認証済みブリッジ経由で実行する。
- * 楽天アクセスキーはGitHubへ渡さない。
+ * 楽天アクセスキーはGitHubへ固定保存しない。
  *
  * セキュリティ:
  * - PINTEREST_AUTOMATION_SECRETはScript Propertiesに保存
@@ -70,6 +70,16 @@ function doPost(e) {
     var expected = KAZU_PINTEREST_AUTOMATION_SECRET_();
     if (!body.secret || body.secret !== expected) {
       return KAZU_PINTEREST_AUTOMATION_JSON_(false, {error:'認証に失敗しました。'});
+    }
+
+    // GitHub Actionsへ楽天アクセスキーを固定保存させず、
+    // 既存のGAS Script Propertiesから必要時だけ取得する。
+    // GitHub側ではこの値をログ出力・ファイル保存しない。
+    if (body.service === 'rakuten_key') {
+      var rakutenKey = KAZU_RAKUTEN_KEY_();
+      return KAZU_PINTEREST_AUTOMATION_JSON_(true, {
+        accessKey: rakutenKey
+      });
     }
 
     if (body.service === 'rakuten') {
