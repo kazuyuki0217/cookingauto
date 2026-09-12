@@ -27,6 +27,33 @@ function KAZU_PINTEREST_AUTOMATION_JSON_(success, data) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+function KAZU_PINTEREST_EXISTING_PIN_KEYS_() {
+  var boardId = KAZU_PROP_('PINTEREST_BOARD_ID');
+  if (!boardId) return {};
+
+  var seen = {};
+  var bookmark = '';
+
+  for (var page = 0; page < 10; page++) {
+    var endpoint = '/boards/' + encodeURIComponent(boardId) + '/pins?page_size=100';
+    if (bookmark) endpoint += '&bookmark=' + encodeURIComponent(bookmark);
+
+    var data = KAZU_PIN_GET_(endpoint);
+    var pins = data && Array.isArray(data.items) ? data.items : [];
+
+    pins.forEach(function(pin) {
+      var title = String(pin.title || '').trim();
+      var link = String(pin.link || '').trim();
+      if (title && link) seen[title + '\n' + link] = String(pin.id || '');
+    });
+
+    bookmark = String(data && data.bookmark ? data.bookmark : '').trim();
+    if (!bookmark || pins.length === 0) break;
+  }
+
+  return seen;
+}
+
 function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
@@ -45,7 +72,6 @@ function doPost(e) {
       return KAZU_PINTEREST_AUTOMATION_JSON_(false, {error:'認証に失敗しました。'});
     }
 
-    // 楽天商品検索は、既存Pinterestブリッジと同じ認証済みGAS Webアプリで処理する。
     if (body.service === 'rakuten') {
       return KAZU_RAKUTEN_AUTOMATION_(body);
     }
@@ -58,7 +84,10 @@ function doPost(e) {
       });
     }
 
+    // 同じ記事をActionsから再実行しても、同じtitle + linkのPinを二重投稿しない。
+    var existing = KAZU_PINTEREST_EXISTING_PIN_KEYS_();
     var results = [];
+
     for (var i = 0; i < pins.length; i++) {
       var pin = pins[i] || {};
       if (!pin.imageUrl || !pin.title || !pin.link) {
@@ -67,17 +96,34 @@ function doPost(e) {
         });
       }
 
+      var title = String(pin.title);
+      var link = String(pin.link);
+      var key = title.trim() + '\n' + link.trim();
+      var existingId = existing[key] || '';
+
+      if (existingId) {
+        results.push({
+          index: i + 1,
+          id: existingId,
+          success: true,
+          skipped: true,
+          reason: '同一title+linkのPinが既に存在'
+        });
+        continue;
+      }
+
       var result = PinterestPin作成(
         String(pin.imageUrl),
-        String(pin.title),
+        title,
         String(pin.description || ''),
-        String(pin.link)
+        link
       );
 
       results.push({
         index: i + 1,
         id: result && result.id ? String(result.id) : '',
-        success: true
+        success: true,
+        skipped: false
       });
 
       if (i < pins.length - 1) Utilities.sleep(1500);
@@ -85,7 +131,8 @@ function doPost(e) {
 
     return KAZU_PINTEREST_AUTOMATION_JSON_(true, {
       count: results.length,
-      results: results
+      results: results,
+      skippedCount: results.filter(function(item) { return item.skipped; }).length
     });
 
   } catch (error) {
