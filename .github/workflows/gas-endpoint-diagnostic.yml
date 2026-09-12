@@ -1,0 +1,29 @@
+name: GAS endpoint diagnostic
+
+on:
+  push:
+    paths:
+      - '.github/workflows/gas-endpoint-diagnostic.yml'
+  workflow_dispatch:
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: GAS Web App POST diagnostic
+        env:
+          GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2FvI6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
+          SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
+        run: |
+          set +e
+          echo '--- GET ---'
+          curl -sS -L -o /tmp/get_body -w 'HTTP=%{http_code}\nFINAL_URL=%{url_effective}\nCONTENT_TYPE=%{content_type}\n' "$GAS_URL"
+          head -c 1200 /tmp/get_body
+          echo
+          echo '--- POST rakuten_key ---'
+          curl -sS -L -o /tmp/post_body -w 'HTTP=%{http_code}\nFINAL_URL=%{url_effective}\nCONTENT_TYPE=%{content_type}\n' \
+            -H 'Content-Type: application/json' \
+            --data "{\"service\":\"rakuten_key\",\"secret\":\"$SECRET\"}" \
+            "$GAS_URL"
+          head -c 1200 /tmp/post_body | sed -E 's/[A-Za-z0-9_-]{20,}/[REDACTED]/g'
+          echo
