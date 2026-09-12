@@ -51,10 +51,10 @@ function searchRakuten(){
  window[callbackName]=function(data){
   const raw=JSON.stringify(data,null,2);
   cleanup();
-  if(data&&data.error){finish(data,'楽天APIエラー\n'+raw);return;}
+  if(data&&data.error){finish(data,'楽天APIエラー\\n'+raw);return;}
   const items=data&&(data.Items||data.items);
-  if(!items){finish(data,'楽天API応答形式エラー\n'+raw);return;}
-  finish(data,'楽天API接続成功\n取得件数: '+items.length+'件');
+  if(!items){finish(data,'楽天API応答形式エラー\\n'+raw);return;}
+  finish(data,'楽天API接続成功\\n取得件数: '+items.length+'件');
  };
  const p=new URLSearchParams({
   applicationId:'5db6e350-5a71-4843-8d29-cf894bef88df',
@@ -69,16 +69,22 @@ function searchRakuten(){
  });
  const script=document.createElement('script');
  script.id='rakuten-jsonp';
+ // Make the browser send the full GitHub Pages URL as the Referer.
+ script.referrerPolicy='unsafe-url';
  script.src='https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701?'+p.toString();
+ script.onload=function(){
+  // A successful JSONP response calls the callback and sets __RAKUTEN_DONE.
+  // If it does not, wait for the normal timeout so the caller gets a useful result.
+ };
  script.onerror=function(){
   cleanup();
-  finish(null,'楽天API通信エラー\nJSONPリクエストを読み込めませんでした。');
+  finish(null,'楽天API通信エラー\\nJSONPリクエストを読み込めませんでした。呼び出し元: '+location.origin);
  };
  document.head.appendChild(script);
  timeoutId=setTimeout(function(){
   if(callbackName){
    cleanup();
-   finish(null,'楽天APIタイムアウト\n応答がありませんでした。');
+   finish(null,'楽天APIタイムアウト\\n応答がありませんでした。');
   }
  },15000);
 }
