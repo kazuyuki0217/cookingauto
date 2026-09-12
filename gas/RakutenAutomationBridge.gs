@@ -7,9 +7,11 @@
  * PinterestAutomationBridgeと同じGAS Webアプリを利用する。
  *
  * 2026-09-12 修正:
- * 楽天APIから REQUEST_CONTEXT_BODY_HTTP_REFERRER_MISSING が返った場合、
- * はてなブログをリクエスト元として明示して再試行する。
- * 通常時は余計なヘッダーを付けず、403時だけ再試行する。
+ * 楽天API(2026-07-01)のWebアプリ型アクセス制御に合わせ、
+ * 許可済みのはてなブログをOrigin/Refererとして常時明示する。
+ * 403発生後だけヘッダーを付ける方式では、楽天側の
+ * HTTP_REFERRER_NOT_ALLOWED 判定を正しく切り分けられないため、
+ * 最初のリクエストからブラウザ由来のコンテキストを明示する。
  */
 
 function KAZU_RAKUTEN_AUTOMATION_SEARCH_(keyword, hits) {
@@ -33,43 +35,26 @@ function KAZU_RAKUTEN_AUTOMATION_SEARCH_(keyword, hits) {
   var url = KAZU_RAKUTEN_API_() + '?' + params.join('&');
   Logger.log('楽天自動化API検索開始: ' + keyword);
 
+  // 楽天アプリに登録済みの「許可されたウェブサイト」と一致させる。
+  // 2026年版APIではOrigin/Refererによるアクセス元確認が行われるため、
+  // GASのサーバーサイドUrlFetchでも両方を明示する。
+  var allowedOrigin = 'https://tansinfuninkazu.hatenablog.com';
+  var allowedReferer = 'https://tansinfuninkazu.hatenablog.com/';
+
   var response = UrlFetchApp.fetch(url, {
     method: 'get',
     muteHttpExceptions: true,
     followRedirects: true,
     headers: {
-      'Accept': 'application/json'
+      'Accept': 'application/json',
+      'Origin': allowedOrigin,
+      'Referer': allowedReferer
     }
   });
 
   var code = response.getResponseCode();
   var body = response.getContentText();
-  Logger.log('楽天自動化API HTTP（初回）: ' + code);
-
-  // 現在の楽天APIがRefererを要求する場合だけ再試行する。
-  // 余計なRefererを常時送ると、逆にNOT_ALLOWEDになる可能性があるため、
-  // 通常リクエストは従来どおりシンプルに保つ。
-  if (
-    code === 403 &&
-    body.indexOf('REQUEST_CONTEXT_BODY_HTTP_REFERRER_MISSING') !== -1
-  ) {
-    Logger.log('楽天APIがRefererを要求したため、はてなブログURLを付けて再試行します。');
-
-    response = UrlFetchApp.fetch(url, {
-      method: 'get',
-      muteHttpExceptions: true,
-      followRedirects: true,
-      headers: {
-        'Accept': 'application/json',
-        'Origin': 'https://tansinfuninkazu.hatenablog.com',
-        'Referer': 'https://tansinfuninkazu.hatenablog.com/'
-      }
-    });
-
-    code = response.getResponseCode();
-    body = response.getContentText();
-    Logger.log('楽天自動化API HTTP（Referer再試行）: ' + code);
-  }
+  Logger.log('楽天自動化API HTTP: ' + code);
 
   if (code < 200 || code >= 300) {
     throw new Error('楽天APIエラー HTTP ' + code + '\n' + body);
