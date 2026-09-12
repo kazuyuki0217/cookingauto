@@ -1,6 +1,6 @@
 import json
 import os
-from urllib.parse import quote, urlencode, urlparse
+from urllib.parse import urlencode, urlparse
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
@@ -55,12 +55,9 @@ def search_rakuten_browser(keyword, hits=10):
         browser = p.chromium.launch(headless=True)
         context = None
         try:
-            # First open the registered GitHub Pages origin. Then navigate the
-            # same browser tab to Rakuten's JSON endpoint. This preserves the
-            # GitHub Pages Referer without using a cross-origin <script> tag,
-            # which Chromium 151 blocks with ERR_BLOCKED_BY_ORB.
             context = browser.new_context(
                 extra_http_headers={
+                    "Origin": origin,
                     "Referer": RAKUTEN_PAGES_URL,
                 }
             )
