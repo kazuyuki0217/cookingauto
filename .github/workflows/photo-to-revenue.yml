@@ -117,3 +117,4 @@ jobs:
         run: echo 'Pinterestへ5件の実投稿まで完了しました。'
 
 # Rakuten GAS URL is intentionally shared with the verified Pinterest GAS Web App secret.
+# Diagnostic trigger: execute the latest Rakuten browser diagnostics.
