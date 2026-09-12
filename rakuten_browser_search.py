@@ -55,6 +55,7 @@ def search_rakuten_browser(keyword, hits=10):
         browser = p.chromium.launch(headless=True)
         context = None
         try:
+            # Validation marker: test the latest Origin + Referer strategy.
             context = browser.new_context(
                 extra_http_headers={
                     "Origin": origin,
