@@ -31,7 +31,9 @@ jobs:
           python-version: '3.12'
 
       - name: 必要なライブラリをインストール
-        run: pip install -r requirements.txt requests
+        run: |
+          pip install -r requirements.txt requests playwright
+          python -m playwright install --with-deps chromium
 
       - name: 入力画像を確認
         env:
@@ -64,6 +66,8 @@ jobs:
 
       - name: 楽天アフィリエイト商品を組み込む
         env:
+          RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
+          RAKUTEN_PAGES_URL: https://kazuyuki0217.github.io/cookingauto/rakuten-test/
           RAKUTEN_GAS_URL: ${{ secrets.PINTEREST_GAS_URL }}
           RAKUTEN_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
         run: python article_affiliate_builder.py
