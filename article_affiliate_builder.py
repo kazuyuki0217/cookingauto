@@ -20,7 +20,8 @@ def find_photo_url():
     return url if url.startswith(("https://", "http://")) else ""
 
 
-def get_rakuten_access_key():
+def _gas_post(payload):
+    """POST to Apps Script and explicitly resolve its 30x redirect."""
     if not RAKUTEN_GAS_URL:
         raise RuntimeError("RAKUTEN_GAS_URLが設定されていません。")
     if not RAKUTEN_AUTOMATION_SECRET:
@@ -28,40 +29,39 @@ def get_rakuten_access_key():
 
     response = requests.post(
         RAKUTEN_GAS_URL,
-        json={"service": "rakuten_key", "secret": RAKUTEN_AUTOMATION_SECRET},
+        json=payload,
         timeout=30,
         allow_redirects=False,
     )
-
-    # Apps Script WebアプリはPOSTの処理結果を302で
-    # script.googleusercontent.comへ返すことがある。
-    # 302をrequestsの標準処理に任せるとPOST→GETへ変換されるため、
-    # Locationを明示的にGETしてJSON結果を取得する。
     if response.status_code in (301, 302, 303, 307, 308):
         location = response.headers.get("Location", "").strip()
         if not location:
-            raise RuntimeError("GAS楽天認証ブリッジがリダイレクト先を返しませんでした。")
+            raise RuntimeError("GAS楽天ブリッジがリダイレクト先を返しませんでした。")
         response = requests.get(location, timeout=30)
 
     if response.status_code < 200 or response.status_code >= 300:
         raise RuntimeError(
-            f"GAS楽天認証ブリッジHTTP {response.status_code}: {response.text[:1000]}"
+            f"GAS楽天ブリッジHTTP {response.status_code}: {response.text[:1000]}"
         )
-
     try:
-        data = response.json()
+        return response.json()
     except ValueError as exc:
         raise RuntimeError(
-            "GAS楽天認証ブリッジのJSON解析に失敗しました。"
-            f" レスポンス先頭: {response.text[:300]}"
+            "GAS楽天ブリッジのJSON解析に失敗しました。"
+            f" レスポンス先頭: {response.text[:500]}"
         ) from exc
 
+
+def get_rakuten_access_key():
+    data = _gas_post({
+        "service": "rakuten_key",
+        "secret": RAKUTEN_AUTOMATION_SECRET,
+    })
     if not data.get("success") or not data.get("accessKey"):
         raise RuntimeError(
             "GASから楽天アクセスキーを取得できませんでした。"
             + (f" 詳細: {data.get('error')}" if data.get("error") else "")
         )
-
     return str(data["accessKey"]).strip()
 
 
@@ -92,11 +92,46 @@ def _product_score(item, dish_name):
     return score
 
 
+def _extract_items(data):
+    """Accept the bridge's possible response envelopes without exposing secrets."""
+    if not isinstance(data, dict):
+        return []
+    if data.get("success") is False:
+        raise RuntimeError("楽天商品検索ブリッジエラー: " + str(data.get("error", "不明なエラー"))[:500])
+
+    for key in ("items", "Items", "results", "products"):
+        value = data.get(key)
+        if isinstance(value, list):
+            return value
+
+    result = data.get("result")
+    if isinstance(result, dict):
+        for key in ("items", "Items", "results", "products"):
+            value = result.get(key)
+            if isinstance(value, list):
+                return value
+
+    return []
+
+
+def search_rakuten_via_gas(keywords, hits=10):
+    """Use the GAS Rakuten bridge so GitHub Actions never depends on Rakuten CORS/Origin rules."""
+    payload = {
+        "service": "rakuten",
+        "secret": RAKUTEN_AUTOMATION_SECRET,
+        "keywords": [str(x).strip() for x in keywords if str(x).strip()][:5],
+        "hits": max(1, min(int(hits), 30)),
+    }
+    data = _gas_post(payload)
+    items = _extract_items(data)
+    if not items:
+        raise RuntimeError("GAS経由の楽天商品検索で商品が取得できませんでした。")
+    return items
+
+
 def choose_products(dish_name):
-    access_key = get_rakuten_access_key()
-    os.environ["RAKUTEN_ACCESS_KEY"] = access_key
-    os.environ["RAKUTEN_PAGES_URL"] = RAKUTEN_PAGES_URL
-    from rakuten_browser_search import search_rakuten_browser
+    # アクセスキー取得を先に実施して、GAS側の認証経路も検証する。
+    get_rakuten_access_key()
 
     keywords = [
         f"{dish_name} フライパン",
@@ -104,15 +139,12 @@ def choose_products(dish_name):
         f"{dish_name} キッチン用品",
     ]
     candidates, seen = [], set()
-    for keyword in keywords:
-        for item in search_rakuten_browser(keyword, 10):
-            url = item.get("affiliateUrl") or item.get("itemUrl") or ""
-            if not item.get("itemName") or not url or url in seen:
-                continue
-            seen.add(url)
-            candidates.append(item)
-            if len(candidates) >= 30:
-                break
+    for item in search_rakuten_via_gas(keywords, 10):
+        url = item.get("affiliateUrl") or item.get("itemUrl") or ""
+        if not item.get("itemName") or not url or url in seen:
+            continue
+        seen.add(url)
+        candidates.append(item)
         if len(candidates) >= 30:
             break
 
@@ -168,7 +200,7 @@ def main():
     print("完成記事生成完了")
     print("料理:", dish_name)
     print("写真URL:", "設定済み" if find_photo_url() else "未設定")
-    print("楽天検索方式:", "GAS保存キー取得 → GitHub Pagesブラウザ(JSONP)")
+    print("楽天検索方式:", "GAS認証ブリッジ → GAS側楽天API検索")
     print("楽天商品リンク: 関連性・レビュー・価格を考慮して自動選定済み")
 
 
