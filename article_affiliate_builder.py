@@ -23,24 +23,19 @@ def find_photo_url():
 
 
 def _gas_post(payload):
-    """POST to Apps Script and explicitly resolve its 30x redirect."""
+    """POST to Apps Script while preserving the redirect session/cookies."""
     if not RAKUTEN_GAS_URL:
         raise RuntimeError("RAKUTEN_GAS_URLが設定されていません。")
     if not RAKUTEN_AUTOMATION_SECRET:
         raise RuntimeError("楽天ブリッジ認証Secretが設定されていません。")
 
-    response = requests.post(
+    session = requests.Session()
+    response = session.post(
         RAKUTEN_GAS_URL,
         json=payload,
         timeout=30,
-        allow_redirects=False,
+        allow_redirects=True,
     )
-    if response.status_code in (301, 302, 303, 307, 308):
-        location = response.headers.get("Location", "").strip()
-        if not location:
-            raise RuntimeError("GAS楽天ブリッジがリダイレクト先を返しませんでした。")
-        response = requests.get(location, timeout=30)
-
     if response.status_code < 200 or response.status_code >= 300:
         raise RuntimeError(
             f"GAS楽天ブリッジHTTP {response.status_code}: {response.text[:1000]}"
