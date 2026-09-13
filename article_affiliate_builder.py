@@ -104,11 +104,10 @@ def _normalize_item(item):
 def search_rakuten_via_browser(keywords, hits=10):
     """Search Rakuten through GitHub Pages JSONP to satisfy Referer restrictions."""
     access_key = get_rakuten_access_key()
-    os.environ["RAKUTEN_ACCESS_KEY"] = access_key
 
     all_items = []
     for keyword in [str(x).strip() for x in keywords if str(x).strip()][:5]:
-        items = search_rakuten_browser(keyword, hits)
+        items = search_rakuten_browser(keyword, hits, access_key=access_key)
         all_items.extend(_normalize_item(item) for item in items)
     return all_items
 
