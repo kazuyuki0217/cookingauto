@@ -99,7 +99,9 @@ jobs:
 
       - name: 楽天アフィリエイト商品を組み込む
         env:
-          RAKUTEN_PAGES_URL: https://kazuyuki0217.github.io/cookingauto/rakuten-test/
+          # 楽天APIの許可済みWebサイトとして登録しているHatenaブログを
+          # Playwrightの実行元にする。GitHub Pagesは楽天の許可ドメインとは限らない。
+          RAKUTEN_PAGES_URL: https://tansinfuninkazu.hatenablog.com/
           RAKUTEN_GAS_URL: ${{ secrets.PINTEREST_GAS_URL }}
           RAKUTEN_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
         run: python article_affiliate_builder.py
