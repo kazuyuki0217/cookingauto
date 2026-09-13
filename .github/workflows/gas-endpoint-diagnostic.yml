@@ -9,7 +9,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Test new GAS Web App POST without following response redirect
+      - name: Test GAS Web App POST redirect response
         env:
           GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVwbfrkcqZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
           SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
@@ -21,16 +21,26 @@ jobs:
           head -c 300 /tmp/get.txt | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g'
           echo
 
-          echo '=== POST rakuten_key (DO NOT follow redirect) ==='
+          echo '=== POST initial response ==='
           curl -sS -D /tmp/post_headers.txt -o /tmp/post.txt -X POST \
             -H 'Content-Type: application/json' \
             --data "{\"service\":\"rakuten_key\",\"secret\":\"$SECRET\"}" \
             "$GAS_URL"
-          echo 'HEADERS:'
-          sed -E 's/(Set-Cookie:|Cookie:).*/\1 [REDACTED]/I' /tmp/post_headers.txt | head -30
-          echo 'BODY_HEAD:'
-          head -c 600 /tmp/post.txt | sed -E 's/[A-Za-z0-9_-]{20,}/[REDACTED]/g' | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g'
+          echo 'STATUS:'
+          awk 'toupper($1) ~ /^HTTP\// {print $0}' /tmp/post_headers.txt | head -1
+          echo 'LOCATION_PRESENT:'
+          grep -i '^location:' /tmp/post_headers.txt | sed -E 's/(location:).*/\1 [REDACTED]/I'
+          echo 'INITIAL_BODY:'
+          head -c 300 /tmp/post.txt | sed -E 's/[A-Za-z0-9_-]{20,}/[REDACTED]/g' | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g'
           echo
 
-          echo '=== POST status only ==='
-          awk 'toupper($1) ~ /^HTTP\// {print $0}' /tmp/post_headers.txt | head -1
+          LOCATION=$(grep -i '^location:' /tmp/post_headers.txt | sed -E 's/^[Ll]ocation:[[:space:]]*//; s/\r$//')
+          if [ -n "$LOCATION" ]; then
+            echo '=== GET redirect target ==='
+            curl -sS -o /tmp/redirect.txt -w 'HTTP=%{http_code}\nFINAL_URL=%{url_effective}\nTYPE=%{content_type}\n' "$LOCATION"
+            echo 'REDIRECT_BODY:'
+            head -c 800 /tmp/redirect.txt | sed -E 's/[A-Za-z0-9_-]{20,}/[REDACTED]/g' | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g'
+            echo
+          else
+            echo 'REDIRECT_TARGET_NOT_FOUND'
+          fi
