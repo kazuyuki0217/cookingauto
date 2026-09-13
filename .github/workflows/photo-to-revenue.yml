@@ -75,6 +75,8 @@ jobs:
           python - <<'PY'
           import os
           import requests
+          from urllib.parse import urlencode
+
           url = os.environ['RAKUTEN_GAS_URL'].strip()
           secret = os.environ['RAKUTEN_AUTOMATION_SECRET'].strip()
           if not url:
@@ -82,12 +84,12 @@ jobs:
           if not secret:
               raise RuntimeError('PINTEREST_AUTOMATION_SECRETが空です。')
 
-          # Apps Script ContentServiceはscript.googleusercontent.comへ
-          # 1回限りのURLでリダイレクトするため、同じSessionで追跡する。
-          session = requests.Session()
-          r = session.post(
-              url,
-              json={'service':'rakuten_key','secret':secret},
+          # Apps Script ContentServiceのPOST→302経路を使わず、
+          # GETのWebアプリ入口で楽天アクセスキーを取得する。
+          # secretはURLへ付与するが、URL自体はログへ出力しない。
+          params = urlencode({'service': 'rakuten_key', 'secret': secret})
+          r = requests.get(
+              url + ('&' if '?' in url else '?') + params,
               timeout=30,
               allow_redirects=True,
           )
