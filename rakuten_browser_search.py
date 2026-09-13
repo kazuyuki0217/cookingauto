@@ -1,6 +1,6 @@
 import json
 import os
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlparse
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
@@ -9,187 +9,103 @@ RAKUTEN_PAGES_URL = os.environ.get(
     "https://kazuyuki0217.github.io/cookingauto/rakuten-test/",
 ).strip()
 RAKUTEN_ACCESS_KEY = os.environ.get("RAKUTEN_ACCESS_KEY", "").strip()
-RAKUTEN_APPLICATION_ID = "5db6e350-5a71-4843-8d29-cf894bef88df"
-RAKUTEN_AFFILIATE_ID = "56e8483c.b8c4995b.56e8483d.205a3086"
-RAKUTEN_API_ENDPOINT = "https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701"
 
 
-def _safe_api_url(value):
+def _safe_url(value):
     try:
-        parsed_url = urlparse(value)
-        return parsed_url.scheme + "://" + parsed_url.netloc + parsed_url.path
+        parsed = urlparse(value)
+        return parsed.scheme + "://" + parsed.netloc + parsed.path
     except Exception:
         return "unknown"
 
 
-def _safe_diagnostics(diagnostics):
-    return json.dumps(diagnostics, ensure_ascii=False)
-
-
-def _rakuten_error_message(result):
-    """Return a useful Rakuten error without exposing the access key."""
+def _rakuten_error(result):
     if not isinstance(result, dict):
         return None
-
-    # Rakuten may return either {"error": ...} or
-    # {"errors": {"errorCode": ..., "errorMessage": ...}}.
     if result.get("error"):
         return json.dumps(result, ensure_ascii=False)
-
     errors = result.get("errors")
     if errors:
-        if isinstance(errors, dict):
-            code = errors.get("errorCode") or errors.get("code")
-            message = errors.get("errorMessage") or errors.get("message")
-            if code or message:
-                return json.dumps(
-                    {
-                        "errorCode": code,
-                        "errorMessage": message,
-                        "errors": errors,
-                    },
-                    ensure_ascii=False,
-                )
         return json.dumps({"errors": errors}, ensure_ascii=False)
-
     return None
 
 
 def search_rakuten_browser(keyword, hits=10):
+    """Search Rakuten from GitHub Pages using browser JSONP.
+
+    JSONP is intentional here: the browser sends the GitHub Pages Referer to
+    Rakuten without depending on a CORS-enabled fetch response.
+    """
     if not RAKUTEN_ACCESS_KEY:
         raise RuntimeError("RAKUTEN_ACCESS_KEY is not configured.")
 
     keyword = str(keyword or "").strip() or "フライパン"
     hits = max(1, min(int(hits), 30))
-    parsed = urlparse(RAKUTEN_PAGES_URL)
-    origin = parsed.scheme + "://" + parsed.netloc
-
-    params = {
-        "applicationId": RAKUTEN_APPLICATION_ID,
-        "accessKey": RAKUTEN_ACCESS_KEY,
-        "affiliateId": RAKUTEN_AFFILIATE_ID,
+    diagnostics = {
+        "page": _safe_url(RAKUTEN_PAGES_URL),
         "keyword": keyword,
-        "hits": str(hits),
-        "page": "1",
-        "format": "json",
-        "formatVersion": "2",
+        "transport": "jsonp",
     }
-    api_url = RAKUTEN_API_ENDPOINT + "?" + urlencode(params)
-
-    diagnostics = {"navigation": [], "responses": [], "failures": []}
-    result = None
-    text = ""
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = None
+        context = browser.new_context()
+        page = context.new_page()
         try:
-            context = browser.new_context()
-            page = context.new_page()
-            page.on(
-                "requestfailed",
-                lambda request: diagnostics["failures"].append({
-                    "url": _safe_api_url(request.url),
-                    "failure": request.failure,
-                })
-                if "openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search" in request.url
-                else None,
+            automation_url = (
+                RAKUTEN_PAGES_URL.rstrip("/")
+                + "/?mode=automation&keyword="
+                + quote(keyword, safe="")
             )
+            page.goto(automation_url, wait_until="domcontentloaded", timeout=30000)
 
-            page.goto(RAKUTEN_PAGES_URL, wait_until="domcontentloaded", timeout=30000)
-
-            fetch_result = page.evaluate(
+            page.evaluate(
                 """
-                async ({apiUrl, origin, referer}) => {
-                    const response = await fetch(apiUrl, {
-                        method: 'GET',
-                        mode: 'cors',
-                        credentials: 'omit',
-                        cache: 'no-store',
-                        referrer: referer,
-                        referrerPolicy: 'unsafe-url'
-                    });
-                    const text = await response.text();
-                    return {
-                        status: response.status,
-                        statusText: response.statusText,
-                        contentType: response.headers.get('content-type') || '',
-                        text: text,
-                        browserOrigin: location.origin,
-                        browserReferer: document.location.href
-                    };
+                ({key, hits}) => {
+                    window.__RAKUTEN_AUTOMATION_KEY = key;
+                    window.__RAKUTEN_AUTOMATION_HITS = hits;
                 }
                 """,
-                {"apiUrl": api_url, "origin": origin, "referer": RAKUTEN_PAGES_URL},
+                {"key": RAKUTEN_ACCESS_KEY, "hits": hits},
             )
+            page.evaluate("window.searchRakuten()")
 
-            diagnostics["navigation"].append({
-                "origin": fetch_result.get("browserOrigin") or origin,
-                "referer": fetch_result.get("browserReferer") or RAKUTEN_PAGES_URL,
-                "api": _safe_api_url(api_url),
-                "transport": "browser_fetch",
-            })
-            diagnostics["responses"].append({
-                "url": _safe_api_url(api_url),
-                "status": fetch_result.get("status"),
-                "statusText": fetch_result.get("statusText", ""),
-                "contentType": fetch_result.get("contentType", ""),
-            })
-            text = fetch_result.get("text", "")
+            page.wait_for_function(
+                "window.__RAKUTEN_DONE === true",
+                timeout=30000,
+            )
+            result = page.evaluate("window.__RAKUTEN_RESULT")
 
-            if not text.strip():
+            if not result:
                 raise RuntimeError(
-                    "楽天APIの応答本文が空です。診断: " + _safe_diagnostics(diagnostics)
+                    "楽天APIの応答データがありません。診断: "
+                    + json.dumps(diagnostics, ensure_ascii=False)
                 )
 
-            try:
-                result = json.loads(text)
-            except json.JSONDecodeError as exc:
+            error = _rakuten_error(result)
+            if error:
                 raise RuntimeError(
-                    "楽天API応答をJSONとして解析できません。本文先頭: "
-                    + text[:500]
+                    "楽天APIエラー: "
+                    + error
                     + " | 診断: "
-                    + _safe_diagnostics(diagnostics)
-                ) from exc
+                    + json.dumps(diagnostics, ensure_ascii=False)
+                )
+
+            items = result.get("Items") or result.get("items") or []
+            if not items:
+                raise RuntimeError(
+                    "楽天商品が見つかりません。検索語: "
+                    + keyword
+                    + " | 診断: "
+                    + json.dumps(diagnostics, ensure_ascii=False)
+                )
+            return items
 
         except PlaywrightTimeoutError as exc:
             raise RuntimeError(
-                "楽天ブラウザ検索タイムアウト。診断: "
-                + _safe_diagnostics(diagnostics)
-            ) from exc
-        except Exception as exc:
-            raise RuntimeError(
-                "楽天ブラウザ検索通信エラー: "
-                + str(exc)
-                + " | 診断: "
-                + _safe_diagnostics(diagnostics)
+                "楽天JSONP検索タイムアウト。診断: "
+                + json.dumps(diagnostics, ensure_ascii=False)
             ) from exc
         finally:
-            if context is not None:
-                context.close()
+            context.close()
             browser.close()
-
-    if not result:
-        raise RuntimeError(
-            "楽天ブラウザ検索エラー: 応答データがありません。診断: "
-            + _safe_diagnostics(diagnostics)
-        )
-
-    rakuten_error = _rakuten_error_message(result)
-    if rakuten_error:
-        raise RuntimeError(
-            "楽天APIエラー: "
-            + rakuten_error
-            + " | 診断: "
-            + _safe_diagnostics(diagnostics)
-        )
-
-    items = result.get("items") or result.get("Items") or []
-    if not items:
-        raise RuntimeError(
-            "楽天商品が見つかりません。検索語: "
-            + keyword
-            + " | 診断: "
-            + _safe_diagnostics(diagnostics)
-        )
-    return items
