@@ -41,11 +41,10 @@ def search_rakuten_browser(keyword, hits=10, access_key=None):
 
     keyword = str(keyword or "").strip() or "フライパン"
     hits = max(1, min(int(hits), 30))
-    callback_name = "rakutenCallbackAutomation"
     diagnostics = {
         "page": _safe_url(RAKUTEN_PAGES_URL),
         "keyword": keyword,
-        "transport": "jsonp",
+        "transport": "browser_top_level_navigation",
         "access_key": "configured",
     }
 
@@ -58,7 +57,6 @@ def search_rakuten_browser(keyword, hits=10, access_key=None):
         "page": "1",
         "format": "json",
         "formatVersion": "2",
-        "callback": callback_name,
     }
     api_url = RAKUTEN_API_URL + "?" + urlencode(params, quote_via=quote)
 
@@ -74,7 +72,7 @@ def search_rakuten_browser(keyword, hits=10, access_key=None):
                 body = ""
                 try:
                     if response.status >= 400:
-                        body = response.text()[:1000]
+                        body = response.text()[:2000]
                 except Exception:
                     body = ""
                 api_response.update({
@@ -96,70 +94,72 @@ def search_rakuten_browser(keyword, hits=10, access_key=None):
         page.on("requestfailed", capture_request_failed)
 
         try:
+            # まず登録済みのWebサイトを開き、そのページをRefererの起点にする。
             page.goto(RAKUTEN_PAGES_URL, wait_until="domcontentloaded", timeout=30000)
-            result = page.evaluate(
-                """
-                ({src, callbackName}) => new Promise((resolve, reject) => {
-                  let timer = null;
-                  const cleanup = () => {
-                    if (timer) clearTimeout(timer);
-                    try { delete window[callbackName]; } catch (e) { window[callbackName] = undefined; }
-                    const old = document.getElementById('rakuten-jsonp-automation');
-                    if (old) old.remove();
-                  };
-                  window[callbackName] = (data) => {
-                    cleanup();
-                    resolve(data || null);
-                  };
-                  const script = document.createElement('script');
-                  script.id = 'rakuten-jsonp-automation';
-                  script.src = src;
-                  script.referrerPolicy = 'unsafe-url';
-                  script.onerror = () => {
-                    cleanup();
-                    reject(new Error('JSONP script load error'));
-                  };
-                  document.head.appendChild(script);
-                  timer = setTimeout(() => {
-                    cleanup();
-                    reject(new Error('JSONP timeout'));
-                  }, 15000);
-                })
-                """,
-                {"src": api_url, "callbackName": callback_name},
+
+            # JSONPをscriptサブリソースとして読み込むとChromiumのORB
+            # (ERR_BLOCKED_BY_ORB) によりJSON応答が遮断される場合がある。
+            # そこでAPI URLそのものをトップレベル遷移させ、Playwrightの
+            # ネットワーク応答として本文を取得する。これはCORS/ORBを回避し、
+            # Rakuten側にはWebサイトからの通常のナビゲーションとして送信する。
+            response = page.goto(
+                api_url,
+                wait_until="domcontentloaded",
+                timeout=30000,
             )
 
-            if not result:
+            if response is None:
+                raise RuntimeError("楽天APIからHTTPレスポンスを取得できませんでした。")
+
+            status = response.status
+            content_type = response.headers.get("content-type", "")
+            body = response.text()
+
+            api_response.update({
+                "status": status,
+                "status_text": response.status_text,
+                "content_type": content_type,
+                "url": _safe_url(response.url),
+                "body_head": body[:2000],
+            })
+
+            if status < 200 or status >= 300:
                 raise RuntimeError(
-                    "楽天APIの応答データがありません。診断: "
-                    + json.dumps({**diagnostics, "api_response": api_response, "request_failure": request_failure}, ensure_ascii=False)
+                    "楽天API HTTP " + str(status) + ": " + body[:2000]
                 )
+
+            try:
+                result = json.loads(body)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    "楽天API応答がJSONではありません。Content-Type="
+                    + content_type
+                    + " body="
+                    + body[:2000]
+                ) from exc
 
             error = _rakuten_error(result)
             if error:
-                raise RuntimeError(
-                    "楽天APIエラー: " + error + " | 診断: "
-                    + json.dumps({**diagnostics, "api_response": api_response, "request_failure": request_failure}, ensure_ascii=False)
-                )
+                raise RuntimeError("楽天APIエラー: " + error)
 
             raw_items = result.get("Items") or result.get("items") or []
             items = [_normalize_item(item) for item in raw_items]
             items = [item for item in items if item]
             if not items:
                 raise RuntimeError(
-                    "楽天商品が見つかりません。検索語: " + keyword + " | 診断: "
-                    + json.dumps({**diagnostics, "api_response": api_response, "request_failure": request_failure}, ensure_ascii=False)
+                    "楽天商品が見つかりません。検索語: " + keyword
                 )
             return items
 
         except PlaywrightTimeoutError as exc:
             raise RuntimeError(
-                "楽天JSONP検索タイムアウト。診断: "
+                "楽天API検索タイムアウト。診断: "
                 + json.dumps({**diagnostics, "api_response": api_response, "request_failure": request_failure}, ensure_ascii=False)
             ) from exc
         except Exception as exc:
             raise RuntimeError(
-                "楽天JSONP検索に失敗しました: " + str(exc) + " | 診断: "
+                "楽天ブラウザAPI検索に失敗しました: " + str(exc)
+                + " | 診断: "
                 + json.dumps({**diagnostics, "api_response": api_response, "request_failure": request_failure}, ensure_ascii=False)
             ) from exc
         finally:
