@@ -5,9 +5,6 @@ from pathlib import Path
 
 import requests
 
-# 楽天アクセスキーはGitHub Secretへ固定保存しない。
-# GASのScript Propertiesに保存されたキーを、既存の認証済みブリッジから
-# 必要な実行時だけ取得し、その値をGitHub Actionsのメモリ上でのみ使用する。
 RAKUTEN_GAS_URL = os.environ.get("RAKUTEN_GAS_URL", "").strip()
 RAKUTEN_AUTOMATION_SECRET = os.environ.get("RAKUTEN_AUTOMATION_SECRET", "").strip()
 RAKUTEN_PAGES_URL = os.environ.get(
@@ -31,12 +28,21 @@ def get_rakuten_access_key():
 
     response = requests.post(
         RAKUTEN_GAS_URL,
-        json={
-            "service": "rakuten_key",
-            "secret": RAKUTEN_AUTOMATION_SECRET,
-        },
+        json={"service": "rakuten_key", "secret": RAKUTEN_AUTOMATION_SECRET},
         timeout=30,
+        allow_redirects=False,
     )
+
+    # Apps Script WebアプリはPOSTの処理結果を302で
+    # script.googleusercontent.comへ返すことがある。
+    # 302をrequestsの標準処理に任せるとPOST→GETへ変換されるため、
+    # Locationを明示的にGETしてJSON結果を取得する。
+    if response.status_code in (301, 302, 303, 307, 308):
+        location = response.headers.get("Location", "").strip()
+        if not location:
+            raise RuntimeError("GAS楽天認証ブリッジがリダイレクト先を返しませんでした。")
+        response = requests.get(location, timeout=30)
+
     if response.status_code < 200 or response.status_code >= 300:
         raise RuntimeError(
             f"GAS楽天認証ブリッジHTTP {response.status_code}: {response.text[:1000]}"
@@ -45,7 +51,10 @@ def get_rakuten_access_key():
     try:
         data = response.json()
     except ValueError as exc:
-        raise RuntimeError("GAS楽天認証ブリッジのJSON解析に失敗しました。") from exc
+        raise RuntimeError(
+            "GAS楽天認証ブリッジのJSON解析に失敗しました。"
+            f" レスポンス先頭: {response.text[:300]}"
+        ) from exc
 
     if not data.get("success") or not data.get("accessKey"):
         raise RuntimeError(
@@ -65,18 +74,9 @@ def _product_score(item, dish_name):
     name = str(item.get("itemName", ""))
     relevance = len(_tokens(dish_name) & _tokens(name)) * 8
     tool_terms = {
-        "フライパン": 16,
-        "鍋": 14,
-        "包丁": 12,
-        "まな板": 10,
-        "キッチン": 8,
-        "調理": 8,
-        "保存容器": 7,
-        "ボウル": 6,
-        "トング": 5,
-        "菜箸": 5,
-        "ヘラ": 5,
-        "油": 4,
+        "フライパン": 16, "鍋": 14, "包丁": 12, "まな板": 10,
+        "キッチン": 8, "調理": 8, "保存容器": 7, "ボウル": 6,
+        "トング": 5, "菜箸": 5, "ヘラ": 5, "油": 4,
     }
     for term, points in tool_terms.items():
         if term in name:
@@ -94,9 +94,6 @@ def _product_score(item, dish_name):
 
 def choose_products(dish_name):
     access_key = get_rakuten_access_key()
-
-    # 取得したキーはこのプロセス内の環境変数へだけ渡し、
-    # 既存のブラウザ検索実装との互換性を保つ。
     os.environ["RAKUTEN_ACCESS_KEY"] = access_key
     os.environ["RAKUTEN_PAGES_URL"] = RAKUTEN_PAGES_URL
     from rakuten_browser_search import search_rakuten_browser
@@ -119,10 +116,7 @@ def choose_products(dish_name):
         if len(candidates) >= 30:
             break
 
-    candidates = [
-        x for x in candidates
-        if x.get("itemName") and (x.get("affiliateUrl") or x.get("itemUrl"))
-    ]
+    candidates = [x for x in candidates if x.get("itemName") and (x.get("affiliateUrl") or x.get("itemUrl"))]
     ranked = sorted(candidates, key=lambda x: _product_score(x, dish_name), reverse=True)
     selected, seen_names = [], set()
     for item in ranked:
@@ -151,15 +145,11 @@ def build_article(title, body, dish_name):
     products = choose_products(dish_name)
     parts = []
     if image_url:
-        parts.append(
-            f'<p><img src="{escape(image_url, quote=True)}" alt="{escape(dish_name, quote=True)}" loading="lazy"></p>'
-        )
+        parts.append(f'<p><img src="{escape(image_url, quote=True)}" alt="{escape(dish_name, quote=True)}" loading="lazy"></p>')
     parts.append(body)
     if products:
         parts.append("<h2>この料理で気になったキッチン用品</h2>")
-        parts.append(
-            "<p>今回の料理との相性、使う場面、レビューの反応などを見ながら、日々の自炊につなげやすいものを選びました。</p>"
-        )
+        parts.append("<p>今回の料理との相性、使う場面、レビューの反応などを見ながら、日々の自炊につなげやすいものを選びました。</p>")
         for i, item in enumerate(products):
             parts.append(f"<p><strong>{escape(item.get('itemName', 'キッチン用品'))}</strong></p>")
             parts.append(product_link(item, i))
