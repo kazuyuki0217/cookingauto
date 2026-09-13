@@ -8,7 +8,6 @@ RAKUTEN_PAGES_URL = os.environ.get(
     "RAKUTEN_PAGES_URL",
     "https://kazuyuki0217.github.io/cookingauto/rakuten-test/",
 ).strip()
-RAKUTEN_ACCESS_KEY = os.environ.get("RAKUTEN_ACCESS_KEY", "").strip()
 
 
 def _safe_url(value):
@@ -30,13 +29,17 @@ def _rakuten_error(result):
     return None
 
 
-def search_rakuten_browser(keyword, hits=10):
-    """Search Rakuten from GitHub Pages using browser JSONP.
+def _normalize_item(item):
+    """Rakuten formatVersion=2 may wrap each product in an Item object."""
+    if isinstance(item, dict) and isinstance(item.get("Item"), dict):
+        return item["Item"]
+    return item if isinstance(item, dict) else {}
 
-    JSONP is intentional here: the browser sends the GitHub Pages Referer to
-    Rakuten without depending on a CORS-enabled fetch response.
-    """
-    if not RAKUTEN_ACCESS_KEY:
+
+def search_rakuten_browser(keyword, hits=10, access_key=None):
+    """Search Rakuten from GitHub Pages using browser JSONP."""
+    access_key = str(access_key or os.environ.get("RAKUTEN_ACCESS_KEY", "")).strip()
+    if not access_key:
         raise RuntimeError("RAKUTEN_ACCESS_KEY is not configured.")
 
     keyword = str(keyword or "").strip() or "フライパン"
@@ -45,6 +48,7 @@ def search_rakuten_browser(keyword, hits=10):
         "page": _safe_url(RAKUTEN_PAGES_URL),
         "keyword": keyword,
         "transport": "jsonp",
+        "access_key": "configured",
     }
 
     with sync_playwright() as p:
@@ -66,7 +70,7 @@ def search_rakuten_browser(keyword, hits=10):
                     window.__RAKUTEN_AUTOMATION_HITS = hits;
                 }
                 """,
-                {"key": RAKUTEN_ACCESS_KEY, "hits": hits},
+                {"key": access_key, "hits": hits},
             )
             page.evaluate("window.searchRakuten()")
 
@@ -91,7 +95,9 @@ def search_rakuten_browser(keyword, hits=10):
                     + json.dumps(diagnostics, ensure_ascii=False)
                 )
 
-            items = result.get("Items") or result.get("items") or []
+            raw_items = result.get("Items") or result.get("items") or []
+            items = [_normalize_item(item) for item in raw_items]
+            items = [item for item in items if item]
             if not items:
                 raise RuntimeError(
                     "楽天商品が見つかりません。検索語: "
