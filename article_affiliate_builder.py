@@ -5,6 +5,8 @@ from pathlib import Path
 
 import requests
 
+from rakuten_browser_search import search_rakuten_browser
+
 RAKUTEN_GAS_URL = os.environ.get("RAKUTEN_GAS_URL", "").strip()
 RAKUTEN_AUTOMATION_SECRET = os.environ.get("RAKUTEN_AUTOMATION_SECRET", "").strip()
 RAKUTEN_PAGES_URL = os.environ.get(
@@ -92,54 +94,33 @@ def _product_score(item, dish_name):
     return score
 
 
-def _extract_items(data):
-    """Accept the bridge's possible response envelopes without exposing secrets."""
-    if not isinstance(data, dict):
-        return []
-    if data.get("success") is False:
-        raise RuntimeError("楽天商品検索ブリッジエラー: " + str(data.get("error", "不明なエラー"))[:500])
-
-    for key in ("items", "Items", "results", "products"):
-        value = data.get(key)
-        if isinstance(value, list):
-            return value
-
-    result = data.get("result")
-    if isinstance(result, dict):
-        for key in ("items", "Items", "results", "products"):
-            value = result.get(key)
-            if isinstance(value, list):
-                return value
-
-    return []
+def _normalize_item(item):
+    """Rakuten formatVersion=2 may wrap each product in an Item object."""
+    if isinstance(item, dict) and isinstance(item.get("Item"), dict):
+        return item["Item"]
+    return item if isinstance(item, dict) else {}
 
 
-def search_rakuten_via_gas(keywords, hits=10):
-    """Use the GAS Rakuten bridge so GitHub Actions never depends on Rakuten CORS/Origin rules."""
-    payload = {
-        "service": "rakuten",
-        "secret": RAKUTEN_AUTOMATION_SECRET,
-        "keywords": [str(x).strip() for x in keywords if str(x).strip()][:5],
-        "hits": max(1, min(int(hits), 30)),
-    }
-    data = _gas_post(payload)
-    items = _extract_items(data)
-    if not items:
-        raise RuntimeError("GAS経由の楽天商品検索で商品が取得できませんでした。")
-    return items
+def search_rakuten_via_browser(keywords, hits=10):
+    """Search Rakuten through GitHub Pages JSONP to satisfy Referer restrictions."""
+    access_key = get_rakuten_access_key()
+    os.environ["RAKUTEN_ACCESS_KEY"] = access_key
+
+    all_items = []
+    for keyword in [str(x).strip() for x in keywords if str(x).strip()][:5]:
+        items = search_rakuten_browser(keyword, hits)
+        all_items.extend(_normalize_item(item) for item in items)
+    return all_items
 
 
 def choose_products(dish_name):
-    # アクセスキー取得を先に実施して、GAS側の認証経路も検証する。
-    get_rakuten_access_key()
-
     keywords = [
         f"{dish_name} フライパン",
         f"{dish_name} 調理器具",
         f"{dish_name} キッチン用品",
     ]
     candidates, seen = [], set()
-    for item in search_rakuten_via_gas(keywords, 10):
+    for item in search_rakuten_via_browser(keywords, 10):
         url = item.get("affiliateUrl") or item.get("itemUrl") or ""
         if not item.get("itemName") or not url or url in seen:
             continue
@@ -148,7 +129,6 @@ def choose_products(dish_name):
         if len(candidates) >= 30:
             break
 
-    candidates = [x for x in candidates if x.get("itemName") and (x.get("affiliateUrl") or x.get("itemUrl"))]
     ranked = sorted(candidates, key=lambda x: _product_score(x, dish_name), reverse=True)
     selected, seen_names = [], set()
     for item in ranked:
@@ -200,7 +180,7 @@ def main():
     print("完成記事生成完了")
     print("料理:", dish_name)
     print("写真URL:", "設定済み" if find_photo_url() else "未設定")
-    print("楽天検索方式:", "GAS認証ブリッジ → GAS側楽天API検索")
+    print("楽天検索方式:", "GASでアクセスキー取得 → GitHub Pages JSONP → 楽天API")
     print("楽天商品リンク: 関連性・レビュー・価格を考慮して自動選定済み")
 
 
