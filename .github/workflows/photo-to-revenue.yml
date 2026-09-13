@@ -67,10 +67,40 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python generate_article.py
 
+      - name: 楽天GASブリッジ疎通確認
+        env:
+          RAKUTEN_GAS_URL: ${{ secrets.PINTEREST_GAS_URL }}
+          RAKUTEN_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
+        run: |
+          python - <<'PY'
+          import os
+          import requests
+          url = os.environ['RAKUTEN_GAS_URL'].strip()
+          secret = os.environ['RAKUTEN_AUTOMATION_SECRET'].strip()
+          if not url:
+              raise RuntimeError('PINTEREST_GAS_URLが空です。')
+          if not secret:
+              raise RuntimeError('PINTEREST_AUTOMATION_SECRETが空です。')
+          r = requests.post(url, json={'service':'rakuten_key','secret':secret}, timeout=30, allow_redirects=False)
+          print('楽天GASブリッジ初回HTTP:', r.status_code)
+          if r.status_code in (301,302,303,307,308):
+              location = r.headers.get('Location','').strip()
+              if not location:
+                  raise RuntimeError('GASリダイレクト先がありません。')
+              r = requests.get(location, timeout=30)
+              print('楽天GASブリッジリダイレクト先HTTP:', r.status_code)
+          if r.status_code < 200 or r.status_code >= 300:
+              raise RuntimeError(f'楽天GASブリッジ疎通失敗 HTTP {r.status_code}: {r.text[:500]}')
+          data = r.json()
+          if not data.get('success') or not data.get('accessKey'):
+              raise RuntimeError('楽天アクセスキー取得失敗: ' + str(data.get('error', data)))
+          print('楽天GASブリッジ疎通確認: 成功（アクセスキー本文は出力しません）')
+          PY
+
       - name: 楽天アフィリエイト商品を組み込む
         env:
           RAKUTEN_PAGES_URL: https://kazuyuki0217.github.io/cookingauto/rakuten-test/
-          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVwbfrkcqZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
+          RAKUTEN_GAS_URL: ${{ secrets.PINTEREST_GAS_URL }}
           RAKUTEN_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
         run: python article_affiliate_builder.py
 
@@ -115,5 +145,3 @@ jobs:
 
       - name: Pinterest自動投稿完了確認
         run: echo 'Pinterestへ5件の実投稿まで完了しました。'
-
-# #45検証: 楽天アクセスキーをブラウザ検索関数へ直接渡す修正版を実行
