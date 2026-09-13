@@ -54,6 +54,42 @@ function KAZU_PINTEREST_EXISTING_PIN_KEYS_() {
   return seen;
 }
 
+/**
+ * GitHub Actionsからの楽天アクセスキー取得用GET入口。
+ *
+ * Apps Script ContentServiceのPOSTレスポンスは302で一時URLへ
+ * リダイレクトされるため、キー取得だけはGETに統一する。
+ * secretはScript Propertiesと照合し、キー自体はログへ出さない。
+ */
+function doGet(e) {
+  try {
+    var params = e && e.parameter ? e.parameter : {};
+    var service = String(params.service || '').trim();
+    var secret = String(params.secret || '').trim();
+
+    if (service === 'rakuten_key') {
+      var expected = KAZU_PINTEREST_AUTOMATION_SECRET_();
+      if (!secret || secret !== expected) {
+        return KAZU_PINTEREST_AUTOMATION_JSON_(false, {error: '認証に失敗しました。'});
+      }
+
+      var rakutenKey = KAZU_RAKUTEN_KEY_();
+      return KAZU_PINTEREST_AUTOMATION_JSON_(true, {
+        accessKey: rakutenKey
+      });
+    }
+
+    return KAZU_PINTEREST_AUTOMATION_JSON_(true, {
+      service: 'health',
+      status: 'ok'
+    });
+  } catch (error) {
+    return KAZU_PINTEREST_AUTOMATION_JSON_(false, {
+      error: String(error && error.message ? error.message : error)
+    });
+  }
+}
+
 function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
