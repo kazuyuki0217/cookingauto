@@ -11,7 +11,7 @@ RAKUTEN_GAS_URL = os.environ.get("RAKUTEN_GAS_URL", "").strip()
 RAKUTEN_AUTOMATION_SECRET = os.environ.get("RAKUTEN_AUTOMATION_SECRET", "").strip()
 RAKUTEN_PAGES_URL = os.environ.get(
     "RAKUTEN_PAGES_URL",
-    "https://kazuyuki0217.github.io/cookingauto/rakuten-test/",
+    "https://tansinfuninkazu.hatenablog.com/",
 ).strip()
 
 
@@ -55,6 +55,11 @@ def _gas_post(payload):
 
 
 def get_rakuten_access_key():
+    """Use the access key already verified by the workflow health check when available."""
+    existing = os.environ.get("RAKUTEN_ACCESS_KEY", "").strip()
+    if existing:
+        return existing
+
     data = _gas_post({
         "service": "rakuten_key",
         "secret": RAKUTEN_AUTOMATION_SECRET,
@@ -102,7 +107,7 @@ def _normalize_item(item):
 
 
 def search_rakuten_via_browser(keywords, hits=10):
-    """Search Rakuten through GitHub Pages JSONP to satisfy Referer restrictions."""
+    """Search Rakuten through the registered Hatena origin using browser JSONP."""
     access_key = get_rakuten_access_key()
 
     all_items = []
@@ -118,69 +123,55 @@ def choose_products(dish_name):
         f"{dish_name} 調理器具",
         f"{dish_name} キッチン用品",
     ]
-    candidates, seen = [], set()
+    products = []
+    seen = set()
     for item in search_rakuten_via_browser(keywords, 10):
-        url = item.get("affiliateUrl") or item.get("itemUrl") or ""
-        if not item.get("itemName") or not url or url in seen:
+        item = _normalize_item(item)
+        url = str(item.get("affiliateUrl") or item.get("itemUrl") or "").strip()
+        name = str(item.get("itemName", "")).strip()
+        if not url or not name or url in seen:
             continue
         seen.add(url)
-        candidates.append(item)
-        if len(candidates) >= 30:
-            break
+        item["_score"] = _product_score(item, dish_name)
+        products.append(item)
 
-    ranked = sorted(candidates, key=lambda x: _product_score(x, dish_name), reverse=True)
-    selected, seen_names = [], set()
-    for item in ranked:
-        normalized = re.sub(r"\s+", "", str(item.get("itemName", ""))).lower()
-        if normalized in seen_names:
-            continue
-        seen_names.add(normalized)
-        selected.append(item)
-        if len(selected) >= 3:
-            break
-    return selected
+    products.sort(key=lambda x: x.get("_score", 0), reverse=True)
+    return products[:3]
 
 
-def product_link(item, index):
+def _product_link(item, label):
+    url = str(item.get("affiliateUrl") or item.get("itemUrl") or "").strip()
+    name = escape(str(item.get("itemName", "")).strip())
+    if not url or not name:
+        return ""
+    return f'<p><a href="{escape(url, quote=True)}" rel="nofollow sponsored noopener" target="_blank">{escape(label)}</a><br>{name}</p>'
+
+
+def build_article(title, body, dish_name):
+    products = choose_products(dish_name)
     labels = [
         "▶ 仕事終わりの自炊に使いやすい道具を見てみる",
         "▶ この料理を作るなら、これが気になる",
         "▶ 毎日の自炊を少し楽にする道具を探す",
     ]
-    url = item.get("affiliateUrl") or item.get("itemUrl") or ""
-    return f'<p><a href="{escape(url, quote=True)}" rel="nofollow sponsored">{labels[index]}</a></p>'
-
-
-def build_article(title, body, dish_name):
-    image_url = find_photo_url()
-    products = choose_products(dish_name)
-    parts = []
-    if image_url:
-        parts.append(f'<p><img src="{escape(image_url, quote=True)}" alt="{escape(dish_name, quote=True)}" loading="lazy"></p>')
-    parts.append(body)
-    if products:
-        parts.append("<h2>この料理で気になったキッチン用品</h2>")
-        parts.append("<p>今回の料理との相性、使う場面、レビューの反応などを見ながら、日々の自炊につなげやすいものを選びました。</p>")
-        for i, item in enumerate(products):
-            parts.append(f"<p><strong>{escape(item.get('itemName', 'キッチン用品'))}</strong></p>")
-            parts.append(product_link(item, i))
-    return "\n".join(parts)
+    links = []
+    for item, label in zip(products, labels):
+        link = _product_link(item, label)
+        if link:
+            links.append(link)
+    affiliate_html = "\n".join(links)
+    if affiliate_html:
+        body = body.rstrip() + "\n\n<h3>今回の料理で使いたい道具</h3>\n" + affiliate_html
+    return body
 
 
 def main():
     title = Path("article_title.txt").read_text(encoding="utf-8").strip()
-    body = Path("article_body.txt").read_text(encoding="utf-8").strip()
-    dish_name = os.environ.get("DISH_NAME", "").strip()
-    if not dish_name and Path("dish_name.txt").exists():
-        dish_name = Path("dish_name.txt").read_text(encoding="utf-8").strip()
-    dish_name = dish_name or "料理"
+    body = Path("article_body.txt").read_text(encoding="utf-8")
+    dish_name = Path("dish_name.txt").read_text(encoding="utf-8").strip()
     article = build_article(title, body, dish_name)
     Path("article_final.html").write_text(article, encoding="utf-8")
-    print("完成記事生成完了")
-    print("料理:", dish_name)
-    print("写真URL:", "設定済み" if find_photo_url() else "未設定")
-    print("楽天検索方式:", "GASでアクセスキー取得 → GitHub Pages JSONP → 楽天API")
-    print("楽天商品リンク: 関連性・レビュー・価格を考慮して自動選定済み")
+    print("楽天アフィリエイト商品を記事へ組み込みました。")
 
 
 if __name__ == "__main__":
