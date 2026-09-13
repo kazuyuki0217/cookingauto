@@ -71,11 +71,18 @@ def search_rakuten_browser(keyword, hits=10, access_key=None):
 
         def capture_response(response):
             if response.url.startswith(RAKUTEN_API_URL):
+                body = ""
+                try:
+                    if response.status >= 400:
+                        body = response.text()[:1000]
+                except Exception:
+                    body = ""
                 api_response.update({
                     "status": response.status,
                     "status_text": response.status_text,
                     "content_type": response.headers.get("content-type", ""),
                     "url": _safe_url(response.url),
+                    "body_head": body,
                 })
 
         def capture_request_failed(request):
