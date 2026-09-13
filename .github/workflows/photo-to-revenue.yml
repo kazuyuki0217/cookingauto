@@ -81,17 +81,24 @@ jobs:
               raise RuntimeError('PINTEREST_GAS_URLが空です。')
           if not secret:
               raise RuntimeError('PINTEREST_AUTOMATION_SECRETが空です。')
-          r = requests.post(url, json={'service':'rakuten_key','secret':secret}, timeout=30, allow_redirects=False)
-          print('楽天GASブリッジ初回HTTP:', r.status_code)
-          if r.status_code in (301,302,303,307,308):
-              location = r.headers.get('Location','').strip()
-              if not location:
-                  raise RuntimeError('GASリダイレクト先がありません。')
-              r = requests.get(location, timeout=30)
-              print('楽天GASブリッジリダイレクト先HTTP:', r.status_code)
+
+          # Apps Script ContentServiceはscript.googleusercontent.comへ
+          # 1回限りのURLでリダイレクトするため、同じSessionで追跡する。
+          session = requests.Session()
+          r = session.post(
+              url,
+              json={'service':'rakuten_key','secret':secret},
+              timeout=30,
+              allow_redirects=True,
+          )
+          print('楽天GASブリッジ最終HTTP:', r.status_code)
+          print('楽天GASブリッジ最終URL:', r.url.split('?')[0])
           if r.status_code < 200 or r.status_code >= 300:
               raise RuntimeError(f'楽天GASブリッジ疎通失敗 HTTP {r.status_code}: {r.text[:500]}')
-          data = r.json()
+          try:
+              data = r.json()
+          except ValueError as exc:
+              raise RuntimeError('楽天GASブリッジJSON解析失敗: ' + r.text[:500]) from exc
           if not data.get('success') or not data.get('accessKey'):
               raise RuntimeError('楽天アクセスキー取得失敗: ' + str(data.get('error', data)))
           with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as f:
