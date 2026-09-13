@@ -94,13 +94,13 @@ jobs:
           data = r.json()
           if not data.get('success') or not data.get('accessKey'):
               raise RuntimeError('楽天アクセスキー取得失敗: ' + str(data.get('error', data)))
-          print('楽天GASブリッジ疎通確認: 成功（アクセスキー本文は出力しません）')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as f:
+              f.write('RAKUTEN_ACCESS_KEY=' + str(data['accessKey']).strip() + '\n')
+          print('楽天GASブリッジ疎通確認: 成功（アクセスキーは次工程へ安全に引き渡します）')
           PY
 
       - name: 楽天アフィリエイト商品を組み込む
         env:
-          # 楽天APIの許可済みWebサイトとして登録しているHatenaブログを
-          # Playwrightの実行元にする。GitHub Pagesは楽天の許可ドメインとは限らない。
           RAKUTEN_PAGES_URL: https://tansinfuninkazu.hatenablog.com/
           RAKUTEN_GAS_URL: ${{ secrets.PINTEREST_GAS_URL }}
           RAKUTEN_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
