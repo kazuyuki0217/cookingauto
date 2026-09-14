@@ -51,24 +51,29 @@ function searchRakuten(){
     finish({success:true,count:items.length,items:items});
   };
 
-  var p=new URLSearchParams({
+  var params={
     applicationId:String(config.applicationId),
     accessKey:String(config.accessKey),
-    affiliateId:String(config.affiliateId),
     keyword:keyword,
     hits:String(config.hits||10),
     page:'1',
     format:'json',
     formatVersion:'2',
+    sort:'-reviewCount',
+    orFlag:'1',
+    availability:'1',
+    imageFlag:'1',
     callback:callbackName
-  });
+  };
+  if(String(config.affiliateId||'').trim())params.affiliateId=String(config.affiliateId).trim();
 
+  var p=new URLSearchParams(params);
   var script=document.createElement('script');
   script.id='rakuten-jsonp';
   script.async=true;
   script.onerror=function(){fail('楽天APIのJSONPスクリプト読み込みに失敗しました。');};
-  document.head.appendChild(script);
   script.src='https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701?'+p.toString();
+  document.head.appendChild(script);
 
   timeoutId=setTimeout(function(){
     if(!window.__RAKUTEN_DONE)fail('楽天APIタイムアウト（20秒）。');
