@@ -1,0 +1,55 @@
+name: ゼロポイント収益化ステージ確認
+
+on:
+  push:
+    branches:
+      - verify-affiliate-stage-20260914
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+      - name: Pythonをセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 必要なライブラリをインストール
+        run: |
+          pip install requests playwright
+          python -m playwright install --with-deps chromium
+      - name: 管理用テスト入力を作成
+        run: |
+          printf '%s\n' 'ゼロポイント復旧テスト用記事' > article_title.txt
+          printf '%s\n' 'フライパンを使って料理を作りました。仕事終わりでも使いやすい道具について紹介します。' > article_body.txt
+          printf '%s\n' 'フライパン' > dish_name.txt
+      - name: 楽天商品選定とアフィリエイト組み込みを実行
+        env:
+          RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
+          RAKUTEN_PAGES_URL: https://tansinfuninkazu.hatenablog.com/
+          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVfrkcqZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
+          PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
+        run: |
+          python article_affiliate_builder.py
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          html = Path('article_final.html').read_text(encoding='utf-8')
+          links = re.findall(r'<a href="([^"]+)"[^>]*>(.*?)</a>', html)
+          print(f'AFFILIATE_LINK_COUNT={len(links)}')
+          print(f'ARTICLE_FINAL_SIZE={len(html)}')
+          if len(links) < 1:
+              raise SystemExit('アフィリエイトリンクが1件も生成されませんでした')
+          if not all(u.startswith(('https://', 'http://')) for u,_ in links):
+              raise SystemExit('リンクURLが不正です')
+          print('ZERO_POINT_AFFILIATE_STAGE_VERIFIED=success')
+          PY
+      - name: 成果物を保存
+        uses: actions/upload-artifact@v4
+        with:
+          name: zero-point-affiliate-stage
+          path: article_final.html
