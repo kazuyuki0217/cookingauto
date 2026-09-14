@@ -1,4 +1,4 @@
-name: 楽天API旧ブラウザ方式再現診断
+name: 楽天API実ブラウザ接続診断
 
 on:
   workflow_dispatch:
@@ -11,69 +11,74 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - name: Install HTTP client
-        run: python -m pip install --upgrade pip requests
-      - name: 楽天API許可ドメイン比較診断
+
+      - name: Install Playwright
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: 楽天API実ブラウザJSONP接続
         env:
           RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
         run: |
           python - <<'PY'
           import os
-          import requests
-          from urllib.parse import urlencode
+          from playwright.sync_api import sync_playwright
 
           key = os.environ.get('RAKUTEN_ACCESS_KEY', '').strip()
           if not key:
               raise RuntimeError('RAKUTEN_ACCESS_KEY がGitHub Secretsにありません')
 
-          api = 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'
-          params = {
-              'applicationId': '5db6e350-5a71-4848-3d29-cf894bef88df',
-              'accessKey': key,
-              'affiliateId': '56e8483c.b8c4995b.56a8483d.205a3086',
-              'keyword': 'フライパン',
-              'hits': '3',
-              'page': '1',
-              'format': 'json',
-              'formatVersion': '2',
-          }
-          url = api + '?' + urlencode(params)
+          # GitHub Pages上の実ページからJSONPを発生させる。
+          # Python requestsでRefererを偽装する方式ではなく、Chromium自身の
+          # scriptリクエストとして楽天APIへ送ることで、実ブラウザのRefererを使う。
+          page_url = 'https://kazuyuki0217.github.io/cookingauto/rakuten-test/?mode=automation&keyword=%E3%83%95%E3%83%A9%E3%82%A4%E3%83%91%E3%83%B3'
 
-          candidates = [
-              ('Hatena', 'https://tansinfuninkazu.hatenablog.com', 'https://tansinfuninkazu.hatenablog.com/'),
-              ('Google Apps Script', 'https://script.google.com', 'https://script.google.com/'),
-              ('GitHub Pages', 'https://kazuyuki0217.github.io', 'https://kazuyuki0217.github.io/'),
-          ]
+          print('楽天API診断: GitHub Pagesの実ブラウザページを起動します')
+          print('ページ:', page_url)
 
-          success = False
-          for name, origin, referer in candidates:
-              print('--- 楽天API診断:', name, '---')
-              print('Origin:', origin)
-              print('Referer:', referer)
-              headers = {
-                  'Origin': origin,
-                  'Referer': referer,
-                  'User-Agent': 'Mozilla/5.0 (compatible; cookingauto/1.0)',
-                  'Accept': 'application/json',
-              }
-              response = requests.get(url, headers=headers, timeout=30, allow_redirects=False)
-              print('HTTP:', response.status_code)
-              print('Content-Type:', response.headers.get('content-type', ''))
-              text = response.text
-              print('本文:', text[:1000])
-              if 200 <= response.status_code < 300:
-                  try:
-                      data = response.json()
-                      items = data.get('items', [])
-                      print('商品件数:', len(items))
-                      print('affiliateUrl:', 'あり' if any(item.get('affiliateUrl') for item in items) else 'なし')
-                      if items and any(item.get('affiliateUrl') for item in items):
-                          success = True
-                          print('★★ 成功した許可ドメイン:', name, '★★')
-                          break
-                  except Exception as e:
-                      print('JSON解析エラー:', e)
+          with sync_playwright() as p:
+              browser = p.chromium.launch(headless=True)
+              context = browser.new_context()
+              context.add_init_script(f"window.__RAKUTEN_AUTOMATION_KEY = {key!r}; window.__RAKUTEN_AUTOMATION_HITS = 3;")
+              page = context.new_page()
 
-          if not success:
-              raise RuntimeError('3つの登録候補ドメインすべてで楽天API接続に成功しませんでした')
+              page.on('request', lambda req: print('楽天API request:', req.url) if 'openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search' in req.url else None)
+              page.on('response', lambda res: print('楽天API response HTTP:', res.status, res.url) if 'openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search' in res.url else None)
+
+              page.goto(page_url, wait_until='domcontentloaded', timeout=30000)
+              page.wait_for_function('window.__RAKUTEN_DONE === true', timeout=30000)
+
+              result = page.evaluate('window.__RAKUTEN_RESULT')
+              message = page.locator('#result').inner_text()
+              print('楽天API画面結果:', message)
+
+              if not result:
+                  raise RuntimeError('楽天APIからデータを取得できませんでした')
+              if result.get('error'):
+                  raise RuntimeError('楽天APIエラー: ' + str(result.get('error')))
+
+              items = result.get('Items') or result.get('items') or []
+              print('楽天API商品件数:', len(items))
+
+              for i, item in enumerate(items[:3], 1):
+                  info = item.get('item', item) if isinstance(item, dict) else {}
+                  print(f"商品{i}: {info.get('itemName', '')}")
+                  print(f"価格{i}: {info.get('itemPrice', '')}")
+                  print(f"affiliateUrl{i}: {'あり' if info.get('affiliateUrl') else 'なし'}")
+
+              if not items:
+                  raise RuntimeError('楽天APIは接続できましたが商品が0件です')
+
+              if not any((item.get('item', item) if isinstance(item, dict) else {}).get('affiliateUrl') for item in items):
+                  raise RuntimeError('楽天APIは商品を返しましたがaffiliateUrlがありません')
+
+              print('========================================')
+              print('★★ 楽天API接続成功 ★★')
+              print('★★ 商品取得成功 ★★')
+              print('★★ affiliateUrl取得成功 ★★')
+              print('★★ 実ブラウザJSONP方式を正式採用可能 ★★')
+              print('========================================')
+              browser.close()
           PY
