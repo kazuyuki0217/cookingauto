@@ -1,3 +1,4 @@
+import json
 import os
 from urllib.parse import urlencode
 
@@ -7,10 +8,34 @@ RAKUTEN_GAS_URL = os.environ.get("RAKUTEN_GAS_URL") or os.environ.get("PINTEREST
 RAKUTEN_AUTOMATION_SECRET = os.environ.get("PINTEREST_AUTOMATION_SECRET", "")
 
 
+RAKUTEN_API_MARKER = "openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/"
+
+
 def _normalize_item(item):
     if isinstance(item, dict) and isinstance(item.get("Item"), dict):
         return item["Item"]
     return item if isinstance(item, dict) else {}
+
+
+def _parse_jsonp(text):
+    text = str(text or "").lstrip("\ufeff \r\n\t")
+    if not text:
+        raise ValueError("楽天APIレスポンス本文が空です。")
+
+    # JSONそのものも受け付ける。
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # callback({...}); 形式のJSONPを取り出す。
+    first = text.find("(")
+    last = text.rfind(")")
+    if first <= 0 or last <= first:
+        raise ValueError("楽天APIレスポンスがJSON/JSONP形式ではありません。")
+
+    payload = text[first + 1:last].strip()
+    return json.loads(payload)
 
 
 def _search_once(keyword, hits):
@@ -34,15 +59,30 @@ def _search_once(keyword, hits):
             diagnostics = {
                 "rakuten_status": None,
                 "rakuten_url": "",
+                "rakuten_body": "",
+                "rakuten_parsed": None,
                 "console": [],
                 "page_errors": [],
                 "request_failed": [],
             }
 
             def on_response(response):
-                if "openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/" in response.url:
+                if RAKUTEN_API_MARKER in response.url:
                     diagnostics["rakuten_status"] = response.status
-                    diagnostics["rakuten_url"] = response.url.split("accessKey=")[0] + "accessKey=[hidden]"
+                    diagnostics["rakuten_url"] = (
+                        response.url.split("accessKey=")[0] + "accessKey=[hidden]"
+                    )
+                    try:
+                        body = response.body().decode("utf-8", errors="replace")
+                        diagnostics["rakuten_body"] = body[:3000]
+                        try:
+                            diagnostics["rakuten_parsed"] = _parse_jsonp(body)
+                        except Exception as parse_error:
+                            diagnostics["rakuten_parsed"] = {
+                                "parse_error": str(parse_error),
+                            }
+                    except Exception as body_error:
+                        diagnostics["rakuten_body"] = "BODY_READ_ERROR: " + str(body_error)
 
             def on_console(message):
                 if len(diagnostics["console"]) < 10:
@@ -53,10 +93,9 @@ def _search_once(keyword, hits):
                     diagnostics["page_errors"].append(str(error)[:500])
 
             def on_request_failed(request):
-                if "openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/" in request.url:
-                    diagnostics["request_failed"].append(
-                        (request.failure or "unknown failure")[:500]
-                    )
+                if RAKUTEN_API_MARKER in request.url:
+                    failure = request.failure or "unknown failure"
+                    diagnostics["request_failed"].append(str(failure)[:500])
 
             page.on("response", on_response)
             page.on("console", on_console)
@@ -66,23 +105,40 @@ def _search_once(keyword, hits):
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
             try:
                 page.wait_for_function("window.__RAKUTEN_DONE === true", timeout=30000)
+                data = page.evaluate("window.__RAKUTEN_RESULT")
             except Exception as exc:
-                result = page.evaluate("window.__RAKUTEN_RESULT")
-                body_text = page.locator("body").inner_text(timeout=5000)[:1000]
-                status = diagnostics.get("rakuten_status")
-                detail = {
-                    "status": status,
-                    "result": result,
-                    "body": body_text,
-                    "console": diagnostics["console"],
-                    "page_errors": diagnostics["page_errors"],
-                    "request_failed": diagnostics["request_failed"],
-                }
-                raise RuntimeError(
-                    "楽天ブラウザ検索が完了しませんでした。診断: " + str(detail)
-                ) from exc
-
-            data = page.evaluate("window.__RAKUTEN_RESULT")
+                # ChromiumのORBでJSONPのscript実行がブロックされても、
+                # Playwrightのresponseイベントから本文を取得できる場合がある。
+                parsed = diagnostics.get("rakuten_parsed")
+                if isinstance(parsed, dict):
+                    if parsed.get("error"):
+                        data = {
+                            "success": False,
+                            "error": parsed.get("error_description") or parsed.get("error"),
+                        }
+                    else:
+                        raw_items = parsed.get("Items") or parsed.get("items") or []
+                        data = {
+                            "success": True,
+                            "count": len(raw_items) if isinstance(raw_items, list) else 0,
+                            "items": raw_items,
+                            "orb_fallback": True,
+                        }
+                else:
+                    result = page.evaluate("window.__RAKUTEN_RESULT")
+                    body_text = page.locator("body").inner_text(timeout=5000)[:1000]
+                    detail = {
+                        "status": diagnostics.get("rakuten_status"),
+                        "result": result,
+                        "body": body_text,
+                        "rakuten_body": diagnostics.get("rakuten_body", ""),
+                        "console": diagnostics["console"],
+                        "page_errors": diagnostics["page_errors"],
+                        "request_failed": diagnostics["request_failed"],
+                    }
+                    raise RuntimeError(
+                        "楽天ブラウザ検索が完了しませんでした。診断: " + str(detail)
+                    ) from exc
         finally:
             browser.close()
 
@@ -104,6 +160,8 @@ def search_rakuten_browser(keyword, hits=10, access_key=None):
 
     GitHub Actionsから楽天APIへ直接アクセスせず、GAS Webアプリの
     ブラウザページをChromiumで開き、そのページから楽天JSONPを実行する。
+    ChromiumのORBでJSONP実行が阻止された場合は、Playwrightのネットワーク
+    レスポンス本文を直接解析して商品データを取得する。
     access_key引数は既存呼び出しとの互換性のためだけに受け取る。
     """
     keyword = str(keyword or "").strip() or "フライパン"
