@@ -19,13 +19,16 @@ jobs:
           python -m playwright install --with-deps chromium
           cat > /tmp/diag.py <<'PY'
           import json, os
-          from urllib.parse import urlencode
+          from urllib.parse import urlencode, urlparse, parse_qsl
           from playwright.sync_api import sync_playwright
 
           gas = os.environ['GAS_URL']
           secret = os.environ['SECRET']
-          url = gas + '?' + urlencode({'service':'rakuten_browser','secret':secret,'keyword':'フライパン','hits':'3'})
+          keyword = 'フライパン'
+          url = gas + '?' + urlencode({'service':'rakuten_browser','secret':secret,'keyword':keyword,'hits':'3'})
           allowed_origin = 'https://tansinfuninkazu.hatenablog.com'
+          marker = 'openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/'
+
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
               context = browser.new_context(extra_http_headers={'Origin': allowed_origin, 'Referer': allowed_origin + '/'})
@@ -34,17 +37,26 @@ jobs:
               page.on('console', lambda m: events['console'].append(m.text[:500]))
               page.on('pageerror', lambda e: events['pageerror'].append(str(e)[:1000]))
               page.on('requestfailed', lambda r: events['requestfailed'].append({'url':r.url[:500], 'failure':str(r.failure)[:500]}))
-              page.on('response', lambda r: events['responses'].append({'url':r.url[:500], 'status':r.status}) if 'openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/' in r.url else None)
+
+              api = p.request.new_context(extra_http_headers={'Origin': allowed_origin, 'Referer': allowed_origin + '/'})
+
               def route_handler(route):
                   try:
-                      upstream = route.fetch(timeout=60000, headers={'Origin': allowed_origin, 'Referer': allowed_origin + '/'})
+                      req_url = route.request.url
+                      parsed = urlparse(req_url)
+                      qs = dict(parse_qsl(parsed.query))
+                      upstream = api.get(req_url, timeout=60000, headers={'Origin': allowed_origin, 'Referer': allowed_origin + '/'})
                       body = upstream.body()
-                      print('RAKUTEN_UPSTREAM=' + json.dumps({'status': upstream.status, 'content_type': upstream.headers.get('content-type'), 'body_head': body.decode('utf-8', errors='replace')[:3000]}, ensure_ascii=False))
+                      head = body.decode('utf-8', errors='replace')[:5000]
+                      print('RAKUTEN_UPSTREAM=' + json.dumps({'status': upstream.status, 'content_type': upstream.headers.get('content-type'), 'body_head': head}, ensure_ascii=False))
                       route.fulfill(status=upstream.status, body=body, headers={'Content-Type':'application/javascript; charset=utf-8'})
                   except Exception as e:
-                      print('ROUTE_FETCH_ERROR=' + str(e)[:1000])
+                      print('ROUTE_FETCH_ERROR=' + str(e)[:2000])
                       route.abort()
+
               page.route('**/IchibaItem/Search/**', route_handler)
+              page.on('response', lambda r: events['responses'].append({'url':r.url[:500], 'status':r.status}) if marker in r.url else None)
+
               print('=== TEST CURRENT_GAS_DEPLOYMENT_URL ===')
               response = page.goto(url, wait_until='domcontentloaded', timeout=60000)
               print(json.dumps({'status': response.status if response else None, 'url': page.url, 'title': page.title()}, ensure_ascii=False))
@@ -52,9 +64,19 @@ jobs:
                   page.wait_for_function('window.__RAKUTEN_DONE === true', timeout=30000)
               except Exception as e:
                   print('WAIT_ERROR=' + str(e)[:500])
-              print('RESULT=' + json.dumps(page.evaluate('window.__RAKUTEN_RESULT'), ensure_ascii=False)[:5000])
-              print('EVENTS=' + json.dumps(events, ensure_ascii=False)[:5000])
+              result = page.evaluate('window.__RAKUTEN_RESULT')
+              print('RESULT=' + json.dumps(result, ensure_ascii=False)[:10000])
+              print('EVENTS=' + json.dumps(events, ensure_ascii=False)[:10000])
+              api.dispose()
               browser.close()
+
+              if not result:
+                  raise RuntimeError('楽天API診断結果が取得できませんでした')
+              if result.get('errorCode') or result.get('error'):
+                  raise RuntimeError('楽天APIエラー: ' + json.dumps(result, ensure_ascii=False))
+              items = result.get('items') or result.get('Items') or []
+              if not isinstance(items, list) or len(items) < 1:
+                  raise RuntimeError('楽天APIは応答したが商品0件: ' + json.dumps(result, ensure_ascii=False)[:5000])
+              print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps({'http':'200','product_count':len(items),'first_product':items[0]}, ensure_ascii=False)[:5000])
           PY
           python /tmp/diag.py
-          # live verification trigger
