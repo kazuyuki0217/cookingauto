@@ -11,7 +11,7 @@ jobs:
     steps:
       - name: PlaywrightでGASブリッジを実接続診断
         env:
-          GAS_URL: https://script.google.com/macros/s/AKfycbyw5WwonV2F6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
+          GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVfrkcqZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
           SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
         run: |
           set -e
@@ -34,7 +34,7 @@ jobs:
               page.on('pageerror', lambda e: events['pageerror'].append(str(e)[:1000]))
               page.on('requestfailed', lambda r: events['requestfailed'].append({'url':r.url[:500], 'failure':str(r.failure)[:500]}))
               page.on('response', lambda r: events['responses'].append({'url':r.url[:500], 'status':r.status}) if 'openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/' in r.url else None)
-              print('=== TEST MORNING_KNOWN_GOOD_URL ===')
+              print('=== TEST CURRENT_GAS_DEPLOYMENT_URL ===')
               response = page.goto(url, wait_until='domcontentloaded', timeout=60000)
               print(json.dumps({'status': response.status if response else None, 'url': page.url, 'title': page.title()}, ensure_ascii=False))
               try:
