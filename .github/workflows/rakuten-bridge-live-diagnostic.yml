@@ -11,7 +11,7 @@ jobs:
     steps:
       - name: PlaywrightでGASブリッジを実接続診断
         env:
-          GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVwbfrcQZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
+          GAS_URL: ${{ secrets.PINTEREST_GAS_URL }}
           SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
         run: |
           set -e
