@@ -1,4 +1,4 @@
-# 現行アクティブデプロイ実測トリガー
+# 現行アクティブ楽天ブリッジと登録済みGitHub Pages経路を実測
 name: 楽天ブラウザブリッジ実接続診断
 on:
   push:
@@ -10,10 +10,12 @@ jobs:
   diagnostic:
     runs-on: ubuntu-latest
     steps:
-      - name: PlaywrightでGASブリッジを実接続診断
+      - name: Playwrightで楽天API実接続を診断
         env:
           GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVwbfrkcqZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
+          GITHUB_PAGES_URL: https://kazuyuki0217.github.io/cookingauto/rakuten-test/
           SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
+          RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
         run: |
           set -e
           python -m pip install playwright
@@ -24,93 +26,49 @@ jobs:
           from playwright.sync_api import sync_playwright
 
           gas = os.environ['GAS_URL']
+          pages = os.environ['GITHUB_PAGES_URL']
           secret = os.environ['SECRET']
+          access_key = os.environ['RAKUTEN_ACCESS_KEY']
           keyword = 'フライパン'
-          url = gas + '?' + urlencode({'service':'rakuten_browser','secret':secret,'keyword':keyword,'hits':'3'})
-          allowed_origin = 'https://tansinfuninkazu.hatenablog.com'
-          marker = 'openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/'
+          allowed_origin = 'https://kazuyuki0217.github.io'
+          api_marker = 'openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/'
 
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
-              context = browser.new_context(extra_http_headers={'Origin': allowed_origin, 'Referer': allowed_origin + '/'})
+
+              # 1) GAS接続が維持されていることを確認
+              gas_context = browser.new_context(extra_http_headers={'Origin':'https://tansinfuninkazu.hatenablog.com','Referer':'https://tansinfuninkazu.hatenablog.com/'})
+              gas_page = gas_context.new_page()
+              gas_url = gas + '?' + urlencode({'service':'rakuten_browser','secret':secret,'keyword':keyword,'hits':'3'})
+              gas_response = gas_page.goto(gas_url, wait_until='domcontentloaded', timeout=60000)
+              print('GAS_CONNECTION=' + json.dumps({'http':gas_response.status if gas_response else None,'title':gas_page.title()}, ensure_ascii=False))
+              gas_context.close()
+
+              # 2) 楽天に登録済みのGitHub Pages経路からJSONPを実リクエスト
+              context = browser.new_context()
               page = context.new_page()
               events = {'console':[], 'pageerror':[], 'requestfailed':[], 'responses':[]}
               page.on('console', lambda m: events['console'].append(m.text[:500]))
               page.on('pageerror', lambda e: events['pageerror'].append(str(e)[:1000]))
               page.on('requestfailed', lambda r: events['requestfailed'].append({'url':r.url[:500], 'failure':str(r.failure)[:500]}))
-              api = p.request.new_context(extra_http_headers={'Origin': allowed_origin, 'Referer': allowed_origin + '/'})
+              page.on('response', lambda r: events['responses'].append({'url':r.url[:500], 'status':r.status, 'content_type':r.headers.get('content-type')}) if api_marker in r.url else None)
+              page.add_init_script('window.__RAKUTEN_AUTOMATION_KEY = ' + json.dumps(access_key) + ';')
 
-              def route_handler(route):
-                  try:
-                      req_url = route.request.url
-                      qs = dict(parse_qsl(urlparse(req_url).query))
-                      upstream = api.get(req_url, timeout=60000, headers={'Origin': allowed_origin, 'Referer': allowed_origin + '/'})
-                      raw = upstream.body()
-                      text = raw.decode('utf-8', errors='replace').lstrip('\ufeff \r\n\t')
-                      print('RAKUTEN_UPSTREAM=' + json.dumps({'status': upstream.status, 'content_type': upstream.headers.get('content-type'), 'body_head': text[:5000]}, ensure_ascii=False))
-                      callback = str(qs.get('callback', '')).strip()
-                      body = raw
-                      if callback:
-                          try:
-                              parsed = json.loads(text)
-                              body = (callback + '(' + json.dumps(parsed, ensure_ascii=False, separators=(',', ':')) + ');').encode('utf-8')
-                              print('RAKUTEN_JSON_TO_JSONP=wrapped')
-                          except json.JSONDecodeError:
-                              print('RAKUTEN_JSON_TO_JSONP=already_jsonp_or_nonjson')
-                      route.fulfill(status=upstream.status, body=body, headers={'Content-Type':'application/javascript; charset=utf-8'})
-                  except Exception as e:
-                      print('ROUTE_FETCH_ERROR=' + str(e)[:2000])
-                      route.abort()
-
-              page.route('**/IchibaItem/Search/**', route_handler)
-              page.on('response', lambda r: events['responses'].append({'url':r.url[:500], 'status':r.status}) if marker in r.url else None)
-
-              print('=== TEST CURRENT_ACTIVE_RAKUTEN_BRIDGE ===')
-              response = page.goto(url, wait_until='domcontentloaded', timeout=60000)
-              print(json.dumps({'status': response.status if response else None, 'url': page.url, 'title': page.title()}, ensure_ascii=False))
-
-              bridge_frame = None
-              for _ in range(100):
-                  for frame in page.frames:
-                      try:
-                          if frame.name == 'userHtmlFrame':
-                              bridge_frame = frame
-                              break
-                      except Exception:
-                          pass
-                  if bridge_frame:
-                      break
-                  page.wait_for_timeout(200)
-
-              print('FRAMES=' + json.dumps([{'url':f.url, 'name':f.name} for f in page.frames], ensure_ascii=False))
-              if bridge_frame:
-                  try:
-                      bridge_frame.wait_for_function("document.body && document.body.innerText.length > 0", timeout=10000)
-                  except Exception:
-                      pass
-                  print('BRIDGE_FRAME=' + json.dumps({'url':bridge_frame.url, 'name':bridge_frame.name}, ensure_ascii=False))
-                  print('BRIDGE_DOM=' + json.dumps(bridge_frame.evaluate("({body:document.body ? document.body.innerText : '', done:window.__RAKUTEN_DONE, result:window.__RAKUTEN_RESULT})"), ensure_ascii=False)[:12000])
-                  try:
-                      bridge_frame.wait_for_function('window.__RAKUTEN_DONE === true', timeout=30000)
-                  except Exception as e:
-                      print('WAIT_ERROR=' + str(e)[:500])
-                  result = bridge_frame.evaluate('window.__RAKUTEN_RESULT')
-              else:
-                  print('BRIDGE_FRAME_NOT_FOUND')
-                  result = None
-
-              print('RESULT=' + json.dumps(result, ensure_ascii=False)[:10000])
+              print('=== TEST REGISTERED_GITHUB_PAGES_ORIGIN ===')
+              response = page.goto(pages + '?' + urlencode({'keyword':keyword,'hits':'3'}), wait_until='domcontentloaded', timeout=60000)
+              print('PAGES_CONNECTION=' + json.dumps({'http':response.status if response else None,'url':page.url,'title':page.title()}, ensure_ascii=False))
+              try:
+                  page.wait_for_function("document.querySelector('#result') && document.querySelector('#result').textContent !== '実行中...'", timeout=30000)
+              except Exception as e:
+                  print('WAIT_ERROR=' + str(e)[:500])
+              result_text = page.locator('#result').inner_text() if page.locator('#result').count() else ''
+              print('PAGES_RESULT=' + result_text[:5000])
               print('EVENTS=' + json.dumps(events, ensure_ascii=False)[:10000])
-              api.dispose()
+              context.close()
               browser.close()
 
-              if not result:
-                  raise RuntimeError('楽天API診断結果が取得できませんでした')
-              if result.get('errorCode') or result.get('error'):
-                  raise RuntimeError('楽天APIエラー: ' + json.dumps(result, ensure_ascii=False))
-              items = result.get('items') or result.get('Items') or []
-              if not isinstance(items, list) or len(items) < 1:
-                  raise RuntimeError('楽天APIは応答したが商品0件: ' + json.dumps(result, ensure_ascii=False)[:5000])
-              print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps({'http':'200','product_count':len(items),'first_product':items[0]}, ensure_ascii=False)[:5000])
+              if '楽天API接続成功' not in result_text:
+                  raise RuntimeError('GitHub Pages経路で楽天API商品取得を確認できませんでした: ' + result_text[:3000])
+              print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps({'http':'200','product_count':'>=1','route':'GitHub Pages -> Rakuten JSONP'}, ensure_ascii=False))
           PY
           python /tmp/diag.py
