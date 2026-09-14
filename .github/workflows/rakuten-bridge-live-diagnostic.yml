@@ -1,4 +1,4 @@
-# 登録済みGitHub Pagesを実ブラウザ起点にしてORBだけを解消
+# GitHub Pages実ブラウザ起点＋route.fetchに実Referrer/Originを明示
 name: 楽天ブラウザブリッジ実接続診断
 on:
   push:
@@ -12,7 +12,7 @@ jobs:
     steps:
       - name: Playwrightで楽天API実接続を診断
         env:
-          GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVwbfrkcqZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
+          GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVwbfrcQZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
           GITHUB_PAGES_URL: https://kazuyuki0217.github.io/cookingauto/rakuten-test/
           SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
           RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
@@ -30,12 +30,11 @@ jobs:
           secret = os.environ['SECRET']
           access_key = os.environ['RAKUTEN_ACCESS_KEY']
           keyword = 'フライパン'
+          origin = 'https://kazuyuki0217.github.io'
           api_marker = 'openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/'
 
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
-
-              # GAS接続を先に確認し、既存の接続経路が維持されていることを測定
               gas_context = browser.new_context(extra_http_headers={'Origin':'https://tansinfuninkazu.hatenablog.com','Referer':'https://tansinfuninkazu.hatenablog.com/'})
               gas_page = gas_context.new_page()
               gas_url = gas + '?' + urlencode({'service':'rakuten_browser','secret':secret,'keyword':keyword,'hits':'3'})
@@ -43,8 +42,6 @@ jobs:
               print('GAS_CONNECTION=' + json.dumps({'http':gas_response.status if gas_response else None,'title':gas_page.title()}, ensure_ascii=False))
               gas_context.close()
 
-              # 楽天に登録済みのGitHub Pagesを実ブラウザ起点にする。
-              # APIレスポンスだけroute.fetch()で受け、JSONならJSONPへ変換してORBを回避する。
               context = browser.new_context()
               page = context.new_page()
               page.add_init_script('window.__RAKUTEN_AUTOMATION_KEY = ' + json.dumps(access_key) + ';')
@@ -55,7 +52,7 @@ jobs:
 
               def route_handler(route):
                   try:
-                      upstream = route.fetch(timeout=60000)
+                      upstream = route.fetch(timeout=60000, headers={'Origin':origin,'Referer':pages})
                       raw = upstream.body()
                       text = raw.decode('utf-8', errors='replace').lstrip('\ufeff \r\n\t')
                       qs = dict(parse_qsl(urlparse(route.request.url).query))
@@ -77,7 +74,7 @@ jobs:
               page.route('**/IchibaItem/Search/**', route_handler)
               page.on('response', lambda r: events['responses'].append({'url':r.url[:500],'status':r.status,'content_type':r.headers.get('content-type')}) if api_marker in r.url else None)
 
-              print('=== TEST REGISTERED_GITHUB_PAGES_WITH_ROUTE_INTERCEPT ===')
+              print('=== TEST GITHUB_PAGES_ROUTE_WITH_HEADERS ===')
               response = page.goto(pages + '?' + urlencode({'keyword':keyword,'hits':'3'}), wait_until='domcontentloaded', timeout=60000)
               print('PAGES_CONNECTION=' + json.dumps({'http':response.status if response else None,'url':page.url,'title':page.title()}, ensure_ascii=False))
               try:
@@ -92,6 +89,6 @@ jobs:
 
               if '楽天API接続成功' not in result_text:
                   raise RuntimeError('GitHub Pages経路で楽天API商品取得を確認できませんでした: ' + result_text[:3000])
-              print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps({'http':'200','product_count':'>=1','route':'GitHub Pages -> route.fetch -> JSONP'}, ensure_ascii=False))
+              print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps({'http':'200','product_count':'>=1','route':'GitHub Pages -> route.fetch(headers) -> JSONP'}, ensure_ascii=False))
           PY
           python /tmp/diag.py
