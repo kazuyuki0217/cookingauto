@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlparse
 
 from playwright.sync_api import sync_playwright
 
@@ -90,7 +90,15 @@ def _search_once(keyword, hits):
                     request_url = route.request.url
                     upstream = api.get(request_url, timeout=60000, headers={"Origin": RAKUTEN_ALLOWED_ORIGIN, "Referer": RAKUTEN_ALLOWED_ORIGIN + "/"})
                     body = upstream.body()
-                    record(body.decode("utf-8", errors="replace"), upstream.status, request_url)
+                    body_text = body.decode("utf-8", errors="replace")
+                    record(body_text, upstream.status, request_url)
+                    callback = dict(parse_qsl(urlparse(request_url).query)).get("callback", "").strip()
+                    if callback:
+                        try:
+                            parsed = json.loads(body_text.lstrip("\ufeff \r\n\t"))
+                            body = (callback + "(" + json.dumps(parsed, ensure_ascii=False, separators=(",", ":")) + ");").encode("utf-8")
+                        except json.JSONDecodeError:
+                            pass
                     route.fulfill(status=upstream.status, body=body, headers={"Content-Type": "application/javascript; charset=utf-8"})
                 except Exception as e:
                     diagnostics["route_fetch_error"] = str(e)[:2000]
