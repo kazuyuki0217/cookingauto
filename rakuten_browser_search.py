@@ -183,12 +183,10 @@ def _fallback_keywords(keyword):
 
     add(original)
 
-    # 料理名・括弧内の付け合わせ等を落として主要な商品語を残す。
     simplified = re.sub(r"[（(].*?[）)]", " ", original)
     simplified = re.sub(r"\s+", " ", simplified).strip()
     add(simplified)
 
-    # 商品カテゴリは料理名より優先して検索できるようにする。
     category_words = [
         "フライパン", "鍋", "包丁", "まな板", "キッチン用品", "保存容器", "調味料",
     ]
@@ -196,13 +194,11 @@ def _fallback_keywords(keyword):
         if category in original or category in simplified:
             add(category)
 
-    # 現在の呼び出しは「料理名 商品カテゴリ」なので、末尾の商品語を抽出。
     for category in category_words:
         if re.search(re.escape(category) + r"\s*$", original):
             add(category)
             break
 
-    # 最終的な汎用フォールバック。
     if any(word in original for word in ["フライパン", "炒め", "焼き", "ステーキ", "肉"]):
         add("フライパン")
     elif any(word in original for word in ["包丁", "切る", "千切り"]):
@@ -214,15 +210,21 @@ def _fallback_keywords(keyword):
 
 
 def search_rakuten_browser(keyword, hits=10, access_key=None):
-    """楽天商品検索。0件なら検索語を自動簡略化して再検索する。"""
+    """楽天商品検索。0件なら検索語を自動簡略化して再検索し、最終的にAPI診断を含めて失敗理由を返す。"""
     hits = max(1, min(int(hits), 30))
     keywords = _fallback_keywords(keyword)
-    last_keyword = keywords[-1] if keywords else "フライパン"
+    diagnostics = []
 
     for search_keyword in keywords:
-        last_keyword = search_keyword
-        items = _search_once(search_keyword, hits)
-        if items:
-            return items
+        try:
+            items = _search_once(search_keyword, hits)
+            if items:
+                return items
+            diagnostics.append(search_keyword + ": HTTP/JSON取得は完了したが商品0件")
+        except Exception as exc:
+            diagnostics.append(search_keyword + ": " + str(exc)[:1500])
 
-    raise RuntimeError("楽天商品が見つかりません。試行検索語: " + " / ".join(keywords))
+    raise RuntimeError(
+        "楽天商品が見つかりません。試行検索語: " + " / ".join(keywords)
+        + "\n楽天API診断: " + " || ".join(diagnostics)
+    )
