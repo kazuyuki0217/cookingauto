@@ -1,4 +1,4 @@
-# Top-level API navigation + route.continueでHatena Refererを実際のHTTPリクエストへ付与
+# Rakuten API direct navigation diagnostic: preserve Hatena Referer without breaking the existing connection
 name: 楽天ブラウザブリッジ実接続診断
 on:
   push:
@@ -31,12 +31,12 @@ jobs:
 
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
-              context = browser.new_context()
+              context = browser.new_context(extra_http_headers={'Referer': hatena + '/'})
               page = context.new_page()
 
               def keep_referrer(route):
                   headers = dict(route.request.headers)
-                  headers['referer'] = hatena
+                  headers['referer'] = hatena + '/'
                   route.continue_(headers=headers)
 
               page.route('**/IchibaItem/Search/**', keep_referrer)
