@@ -36,8 +36,8 @@ function finish(data){
   document.getElementById('result').textContent=JSON.stringify(data);
 }
 
-function fail(message,meta){
-  finish({success:false,error:String(message||'楽天API通信に失敗しました。'),apiMeta:meta||null});
+function fail(message){
+  finish({success:false,error:String(message||'楽天API通信に失敗しました。')});
 }
 
 function searchRakuten(){
@@ -45,34 +45,27 @@ function searchRakuten(){
   callbackName='rakutenBridge_'+Date.now();
   window[callbackName]=function(data){
     if(!data){fail('楽天API応答が空です。');return;}
-    var rawItems=data.Items||data.items||[];
-    var meta={
-      keys:Object.keys(data).slice(0,40),
-      count:data.count,
-      pageCount:data.pageCount,
-      itemsType:Array.isArray(rawItems)?'array':typeof rawItems,
-      itemsLength:Array.isArray(rawItems)?rawItems.length:null,
-      error:data.error||null,
-      errorDescription:data.error_description||null,
-      firstItemKeys:Array.isArray(rawItems)&&rawItems.length&&rawItems[0]&&typeof rawItems[0]==='object'?Object.keys(rawItems[0]).slice(0,40):[]
-    };
-    if(data.error){fail(data.error_description||data.error,meta);return;}
-    if(!Array.isArray(rawItems)){fail('楽天API応答にItems/itemsがありません。',meta);return;}
-    finish({success:true,count:rawItems.length,items:rawItems,apiMeta:meta});
+    if(data.error){fail(data.error_description||data.error);return;}
+    var items=data.Items||data.items||[];
+    if(!Array.isArray(items)){fail('楽天API応答にItems/itemsがありません。');return;}
+    finish({success:true,count:items.length,items:items});
   };
 
   var params={
     applicationId:String(config.applicationId),
     accessKey:String(config.accessKey),
-    affiliateId:String(config.affiliateId||''),
     keyword:keyword,
     hits:String(config.hits||10),
     page:'1',
     format:'json',
     formatVersion:'2',
     sort:'-reviewCount',
+    orFlag:'1',
+    availability:'1',
+    imageFlag:'1',
     callback:callbackName
   };
+  if(String(config.affiliateId||'').trim())params.affiliateId=String(config.affiliateId).trim();
 
   var p=new URLSearchParams(params);
   var script=document.createElement('script');
