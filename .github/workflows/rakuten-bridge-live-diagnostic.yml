@@ -1,5 +1,4 @@
-# Rakuten API browser-origin diagnostic: actual Hatena page -> browser fetch
-# Re-run diagnostic after fixing Playwright evaluate argument passing.
+# Rakuten API browser-origin diagnostic: JSONP script tag from actual Hatena page
 name: 楽天ブラウザブリッジ実接続診断
 on:
   push:
@@ -11,7 +10,7 @@ jobs:
   diagnostic:
     runs-on: ubuntu-latest
     steps:
-      - name: Playwrightで楽天API実接続を診断
+      - name: Playwrightで楽天API JSONP実接続を診断
         env:
           HATENA_URL: https://tansinfuninkazu.hatenablog.com/
           RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
@@ -27,65 +26,75 @@ jobs:
           hatena = os.environ['HATENA_URL']
           access_key = os.environ['RAKUTEN_ACCESS_KEY']
           api = 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'
-          params = {'applicationId':'5db6e350-5a71-4843-8dcf-894bef88df','accessKey':access_key,'affiliateId':'56e8483c.b8c4995b.56e8483d.205a3086','keyword':'フライパン','hits':'3','page':'1','format':'json','formatVersion':'2'}
-          api_url = api + '?' + urlencode(params)
+          params = {
+              'applicationId':'5db6e350-5a71-4843-8dcf-894bef88df',
+              'accessKey':access_key,
+              'affiliateId':'56e8483c.b8c4995b.56e8483d.205a3086',
+              'keyword':'フライパン',
+              'hits':'3',
+              'page':'1',
+              'format':'json',
+              'formatVersion':'2',
+              'sort':'-reviewCount',
+              'orFlag':'1',
+              'availability':'1',
+              'imageFlag':'1'
+          }
+          api_url = api + '?' + urlencode(params) + '&callback=rakutenDiagnosticCallback'
 
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
               context = browser.new_context()
               page = context.new_page()
               captured = {}
+              result = {}
 
               def on_response(response):
                   if '/IchibaItem/Search/' in response.url:
                       captured['status'] = response.status
-                      captured['url'] = response.url
                       captured['content_type'] = response.headers.get('content-type')
                       try:
-                          captured['body'] = response.body().decode('utf-8', errors='replace')[:10000]
+                          body = response.body().decode('utf-8', errors='replace')
+                          captured['body_head'] = body[:1500]
                       except Exception as e:
                           captured['body_error'] = str(e)
 
               page.on('response', on_response)
-              print('=== TEST_REAL_HATENA_PAGE_BROWSER_FETCH_EXPLICIT_REFERRER ===')
               page.goto(hatena, wait_until='domcontentloaded', timeout=60000)
-              result = page.evaluate("""async ({url, referrer}) => {
-                try {
-                  const r = await fetch(url, {
-                    method:'GET',
-                    credentials:'omit',
-                    referrer: referrer,
-                    referrerPolicy: 'unsafe-url'
-                  });
-                  return {ok:r.ok, status:r.status, type:r.type, redirected:r.redirected, url:r.url, text:await r.text()};
-                } catch (e) {
-                  return {fetch_error:String(e)};
-                }
-              }""", {'url': api_url, 'referrer': hatena})
-              page.wait_for_timeout(3000)
-              safe_result = dict(result)
-              if 'text' in safe_result:
-                  try:
-                      parsed = json.loads(safe_result['text'])
-                      safe_result['text_summary'] = {'count': len(parsed.get('items') or parsed.get('Items') or []), 'first_product_name': ((parsed.get('items') or parsed.get('Items') or [{}])[0].get('itemName') if (parsed.get('items') or parsed.get('Items')) else None)}
-                  except Exception:
-                      safe_result['text_summary'] = safe_result['text'][:500]
-                  del safe_result['text']
-              print('BROWSER_FETCH_RESULT=' + json.dumps(safe_result, ensure_ascii=False)[:12000])
-              print('RAKUTEN_NETWORK_CAPTURE=' + json.dumps({k:v for k,v in captured.items() if k != 'body'}, ensure_ascii=False)[:12000])
+              print('=== TEST_REAL_HATENA_PAGE_JSONP_SCRIPT_TAG ===')
+
+              result = page.evaluate("""async (url) => {
+                return await new Promise((resolve) => {
+                  const timer = setTimeout(() => resolve({timeout:true}), 30000);
+                  window.rakutenDiagnosticCallback = (data) => {
+                    clearTimeout(timer);
+                    const items = data && (data.items || data.Items) || [];
+                    resolve({
+                      callback:true,
+                      has_error:!!(data && (data.error || data.errors)),
+                      item_count:Array.isArray(items) ? items.length : -1,
+                      first_product_name:Array.isArray(items) && items.length && items[0] ? items[0].itemName || null : null
+                    });
+                  };
+                  const script = document.createElement('script');
+                  script.src = url;
+                  script.async = true;
+                  script.onerror = () => { clearTimeout(timer); resolve({script_error:true}); };
+                  document.head.appendChild(script);
+                });
+              }""", api_url)
+
+              page.wait_for_timeout(2000)
+              print('BROWSER_JSONP_RESULT=' + json.dumps(result, ensure_ascii=False))
+              print('RAKUTEN_NETWORK_CAPTURE=' + json.dumps(captured, ensure_ascii=False)[:4000])
               page.close(); context.close(); browser.close()
 
-              body = captured.get('body','')
-              status = captured.get('status')
-              if status != 200:
-                  raise RuntimeError('楽天APIブラウザ実接続 HTTPエラー: ' + str(status) + ' ' + body[:2000])
-              try:
-                  data = json.loads(body)
-              except Exception:
-                  raise RuntimeError('楽天APIブラウザ応答をJSON解析できませんでした: ' + body[:2000])
-              items = data.get('items') or data.get('Items') or []
-              if not items:
-                  raise RuntimeError('楽天APIは200だが商品0件: ' + json.dumps(data, ensure_ascii=False)[:5000])
-              print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps({'http':'200','product_count':len(items),'first_product_name':items[0].get('itemName') if isinstance(items[0],dict) else None}, ensure_ascii=False))
+              if captured.get('status') != 200:
+                  raise RuntimeError('楽天API JSONP実接続 HTTPエラー: ' + str(captured.get('status')) + ' ' + str(captured.get('body_head',''))[:1000])
+              if not result.get('callback'):
+                  raise RuntimeError('楽天API JSONPコールバック未到達: ' + json.dumps(result, ensure_ascii=False))
+              if result.get('item_count', 0) <= 0:
+                  raise RuntimeError('楽天APIは200だが商品0件: ' + json.dumps(result, ensure_ascii=False))
+              print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps({'http':'200','product_count':result['item_count'],'first_product_name':result.get('first_product_name')}, ensure_ascii=False))
           PY
           python /tmp/diag.py
