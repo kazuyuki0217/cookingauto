@@ -11,7 +11,7 @@ jobs:
     steps:
       - name: PlaywrightでGASブリッジを実接続診断
         env:
-          GAS_URL: ${{ secrets.PINTEREST_GAS_URL }}
+          GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVwbfrkcqZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
           SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
         run: |
           set -e
@@ -64,7 +64,7 @@ jobs:
               page.route('**/IchibaItem/Search/**', route_handler)
               page.on('response', lambda r: events['responses'].append({'url':r.url[:500], 'status':r.status}) if marker in r.url else None)
 
-              print('=== TEST VERIFIED_GAS_SECRET_URL ===')
+              print('=== TEST CURRENT_ACTIVE_RAKUTEN_BRIDGE ===')
               response = page.goto(url, wait_until='domcontentloaded', timeout=60000)
               print(json.dumps({'status': response.status if response else None, 'url': page.url, 'title': page.title()}, ensure_ascii=False))
 
@@ -82,8 +82,6 @@ jobs:
                   page.wait_for_timeout(200)
 
               print('FRAMES=' + json.dumps([{'url':f.url, 'name':f.name} for f in page.frames], ensure_ascii=False))
-              deployment_result = None
-              config_result = None
               if bridge_frame:
                   try:
                       bridge_frame.wait_for_function("document.body && document.body.innerText.length > 0", timeout=10000)
@@ -91,22 +89,6 @@ jobs:
                       pass
                   print('BRIDGE_FRAME=' + json.dumps({'url':bridge_frame.url, 'name':bridge_frame.name}, ensure_ascii=False))
                   print('BRIDGE_DOM=' + json.dumps(bridge_frame.evaluate("({body:document.body ? document.body.innerText : '', done:window.__RAKUTEN_DONE, result:window.__RAKUTEN_RESULT})"), ensure_ascii=False)[:12000])
-                  try:
-                      deployment_result = bridge_frame.evaluate("""() => new Promise(resolve => {
-                        if (!window.google || !google.script || !google.script.run) { resolve({ok:false,error:'google.script.run unavailable'}); return; }
-                        google.script.run.withSuccessHandler(v => resolve({ok:true,value:v})).withFailureHandler(e => resolve({ok:false,error:String(e && e.message ? e.message : e)}))['GASデプロイ一覧確認']();
-                      })""")
-                  except Exception as e:
-                      deployment_result = {'ok':False,'error':str(e)}
-                  try:
-                      config_result = bridge_frame.evaluate("""() => new Promise(resolve => {
-                        if (!window.google || !google.script || !google.script.run) { resolve({ok:false,error:'google.script.run unavailable'}); return; }
-                        google.script.run.withSuccessHandler(v => resolve({ok:true,value:v})).withFailureHandler(e => resolve({ok:false,error:String(e && e.message ? e.message : e)})).getRakutenBrowserConfig();
-                      })""")
-                  except Exception as e:
-                      config_result = {'ok':False,'error':str(e)}
-                  print('DEPLOYMENT_LIST_RESULT=' + json.dumps(deployment_result, ensure_ascii=False)[:15000])
-                  print('RAKUTEN_CONFIG_RESULT=' + json.dumps(config_result, ensure_ascii=False)[:5000])
                   try:
                       bridge_frame.wait_for_function('window.__RAKUTEN_DONE === true', timeout=30000)
                   except Exception as e:
