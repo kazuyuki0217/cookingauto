@@ -3,10 +3,15 @@ import os
 import re
 from urllib.parse import parse_qsl, urlencode, urlparse
 
+import requests
 from playwright.sync_api import sync_playwright
 
 RAKUTEN_GAS_URL = os.environ.get("RAKUTEN_GAS_URL") or os.environ.get("PINTEREST_GAS_URL", "")
 RAKUTEN_AUTOMATION_SECRET = os.environ.get("PINTER_AUTOMATION_SECRET", "") or os.environ.get("PINTEREST_AUTOMATION_SECRET", "")
+RAKUTEN_ACCESS_KEY = os.environ.get("RAKUTEN_ACCESS_KEY", "").strip()
+RAKUTEN_EXPLORER_APP_ID = "ec65ace1-9e87-4d23-83e4-b54103335b56"
+RAKUTEN_API_ENDPOINT = "https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701"
+RAKUTEN_OFFICIAL_PROXY = "https://webservice.rakuten.co.jp/explorer/proxy"
 RAKUTEN_API_MARKER = "openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/"
 RAKUTEN_ALLOWED_ORIGIN = "https://tansinfuninkazu.hatenablog.com"
 
@@ -57,7 +62,65 @@ def _make_data_from_parsed(parsed, diagnostics=None):
     return result
 
 
-def _search_once(keyword, hits):
+def _search_via_official_proxy(keyword, hits):
+    """Use Rakuten's own API-test-form proxy path.
+
+    The direct openapi endpoint rejects the GitHub runner/browser request context,
+    while Rakuten's official API Test Form successfully forwards the same API URL
+    through /explorer/proxy. The proxy itself is not the Rakuten API; the `url`
+    parameter contains the user's normal 2026-07-01 IchibaItem/Search request.
+    """
+    if not RAKUTEN_ACCESS_KEY:
+        raise RuntimeError("RAKUTEN_ACCESS_KEYが設定されていません。")
+
+    target_params = {
+        "format": "json",
+        "keyword": str(keyword).strip(),
+        "genreId": "0",
+        "applicationId": "5db6e350-5a71-4843-8dcf-894bef88df",
+        "accessKey": RAKUTEN_ACCESS_KEY,
+        "affiliateId": "56e8483c.b8c4995b.56e8483d.205a3086",
+    }
+    target_url = RAKUTEN_API_ENDPOINT + "?" + urlencode(target_params)
+    proxy_params = {
+        "applicationId": RAKUTEN_EXPLORER_APP_ID,
+        "accessKey": RAKUTEN_ACCESS_KEY,
+        "url": target_url,
+    }
+    response = requests.get(
+        RAKUTEN_OFFICIAL_PROXY,
+        params=proxy_params,
+        headers={
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+        },
+        timeout=60,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(f"楽天公式プロキシHTTP {response.status_code}")
+
+    outer = response.json()
+    inner_text = outer.get("content", "") if isinstance(outer, dict) else ""
+    parsed = json.loads(inner_text) if inner_text else {}
+    diagnostics = {
+        "transport": "rakuten_official_explorer_proxy",
+        "http_status": response.status_code,
+        "count": parsed.get("count") if isinstance(parsed, dict) else None,
+        "keyword": str(keyword),
+    }
+    if isinstance(parsed, dict) and (parsed.get("error") or parsed.get("errors")):
+        raise RuntimeError("楽天APIエラー: " + json.dumps(parsed.get("errors") or parsed.get("error"), ensure_ascii=False)[:2000])
+
+    data = _make_data_from_parsed(parsed, diagnostics)
+    raw_items = data.get("items") if isinstance(data, dict) else []
+    items = [_normalize_item(item) for item in (raw_items or [])]
+    items = [item for item in items if item]
+    if not items:
+        raise RuntimeError("楽天公式プロキシはHTTP 200でしたが商品0件")
+    return items[:hits], diagnostics
+
+
+def _search_once_via_gas_browser(keyword, hits):
     if not RAKUTEN_GAS_URL:
         raise RuntimeError("楽天GASブリッジURLが設定されていません。")
     if not RAKUTEN_AUTOMATION_SECRET:
@@ -150,8 +213,12 @@ def search_rakuten_browser(keyword, hits=10, access_key=None):
     diagnostics = []
     for search_keyword in keywords:
         try:
-            items, detail = _search_once(search_keyword, hits)
-            if items: return items
+            if RAKUTEN_ACCESS_KEY or access_key:
+                items, detail = _search_via_official_proxy(search_keyword, hits)
+            else:
+                items, detail = _search_once_via_gas_browser(search_keyword, hits)
+            if items:
+                return items
             diagnostics.append(search_keyword + ": 商品0件 / " + json.dumps(detail or {}, ensure_ascii=False)[:5000])
         except Exception as exc:
             diagnostics.append(search_keyword + ": " + str(exc)[:5000])
