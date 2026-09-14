@@ -1,5 +1,5 @@
-# Rakuten API browser-origin keyword comparison diagnostic
-name: 楽天ブラウザブリッジ実接続診断
+# Rakuten API official test-form diagnostic
+name: 楽天API公式テストフォーム実接続診断
 on:
   push:
     paths:
@@ -10,9 +10,8 @@ jobs:
   diagnostic:
     runs-on: ubuntu-latest
     steps:
-      - name: Playwrightで楽天API検索語別の実接続を診断
+      - name: 楽天公式APIテストフォームから実接続を確認
         env:
-          HATENA_URL: https://kazuyuki0217.github.io/cookingauto/rakuten-test/
           RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
         run: |
           set -e
@@ -20,74 +19,76 @@ jobs:
           python -m playwright install --with-deps chromium
           cat > /tmp/diag.py <<'PY'
           import json, os
-          from urllib.parse import urlencode
           from playwright.sync_api import sync_playwright
 
-          page_url = os.environ['HATENA_URL']
+          app_id = '5db6e350-5a71-4843-8dcf-894bef88df'
           access_key = os.environ['RAKUTEN_ACCESS_KEY']
-          api = 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'
-          keywords = ['フライパン', '包丁', '鍋', '保存容器']
-          results = []
+          test_url = 'https://webservice.rakuten.co.jp/explorer/api/IchibaItem/Search'
 
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
               context = browser.new_context()
               page = context.new_page()
-              page.goto(page_url, wait_until='domcontentloaded', timeout=60000)
-              page.set_extra_http_headers({'Origin': 'https://kazuyuki0217.github.io', 'Referer': page_url})
+              responses = []
 
-              for keyword in keywords:
-                  params = {
-                      'applicationId':'5db6e350-5a71-4843-8dcf-894bef88df',
-                      'accessKey':access_key,
-                      'affiliateId':'56e8483c.b8c4995b.56e8483d.205a3086',
-                      'keyword':keyword,
-                      'hits':'3','page':'1','format':'json','formatVersion':'2',
-                      'sort':'-reviewCount','orFlag':'1','availability':'1','imageFlag':'1'
-                  }
-                  api_url = api + '?' + urlencode(params)
-                  captured = {}
-
-                  def on_response(r):
-                      if '/IchibaItem/Search/' not in r.url:
-                          return
-                      captured['status'] = r.status
-                      captured['content_type'] = r.headers.get('content-type')
+              def on_response(r):
+                  if 'openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/' in r.url:
+                      item = {'status': r.status, 'content_type': r.headers.get('content-type')}
                       try:
-                          captured['body'] = r.body().decode('utf-8', errors='replace')
+                          body = r.body().decode('utf-8', errors='replace')
+                          item['body_head'] = body[:4000]
+                          try:
+                              data = json.loads(body)
+                              items = data.get('items') or data.get('Items') or []
+                              item['item_count'] = len(items)
+                              item['first_product_name'] = items[0].get('itemName') if items and isinstance(items[0], dict) else None
+                              item['count'] = data.get('count')
+                          except Exception:
+                              pass
                       except Exception as e:
-                          captured['body_error'] = str(e)
+                          item['body_error'] = str(e)
+                      responses.append(item)
 
-                  def on_failed(r):
-                      if '/IchibaItem/Search/' in r.url:
-                          captured['failed'] = r.failure
+              page.on('response', on_response)
+              page.goto(test_url, wait_until='domcontentloaded', timeout=60000)
 
-                  page.on('response', on_response)
-                  page.on('requestfailed', on_failed)
-                  page.evaluate("""(url) => fetch(url, {method:'GET', mode:'no-cors', credentials:'omit', cache:'no-store'}).catch(()=>{})""", api_url)
-                  page.wait_for_timeout(5000)
-                  body = captured.get('body','')
-                  item_count = None
-                  first_name = None
-                  if body:
-                      try:
-                          data = json.loads(body)
-                          items = data.get('items') or data.get('Items') or []
-                          item_count = len(items)
-                          if items and isinstance(items[0], dict):
-                              first_name = items[0].get('itemName')
-                      except Exception:
-                          pass
-                  result = {'keyword': keyword, 'http': captured.get('status'), 'content_type': captured.get('content_type'), 'failure': captured.get('failed'), 'item_count': item_count, 'first_product_name': first_name}
-                  results.append(result)
-                  print('KEYWORD_RESULT=' + json.dumps(result, ensure_ascii=False))
+              # Fill the official form without printing the access key.
+              page.locator('input').evaluate_all("""(els, values) => {
+                  const app = els.find(e => /application|app.?id/i.test((e.name||'')+' '+(e.id||'')+' '+(e.placeholder||'')));
+                  const key = els.find(e => /access.?key/i.test((e.name||'')+' '+(e.id||'')+' '+(e.placeholder||'')));
+                  if (app) { app.value = values.app; app.dispatchEvent(new Event('input',{bubbles:true})); app.dispatchEvent(new Event('change',{bubbles:true})); }
+                  if (key) { key.value = values.key; key.dispatchEvent(new Event('input',{bubbles:true})); key.dispatchEvent(new Event('change',{bubbles:true})); }
+              }""", {'app': app_id, 'key': access_key})
 
-                  page.remove_listener('response', on_response)
-                  page.remove_listener('requestfailed', on_failed)
+              # Find keyword input and set フライパン.
+              page.locator('input').evaluate_all("""(els) => {
+                  const e = els.find(e => /keyword|キーワード|検索キーワード/i.test((e.name||'')+' '+(e.id||'')+' '+(e.placeholder||'')));
+                  if (e) { e.value = 'フライパン'; e.dispatchEvent(new Event('input',{bubbles:true})); e.dispatchEvent(new Event('change',{bubbles:true})); }
+              }""")
+
+              # If the form exposes a GET button, click it. Otherwise submit the first form.
+              clicked = page.locator('button, input[type=button], input[type=submit]').evaluate_all("""els => {
+                  const e = els.find(e => /GET|送信|実行|Send/i.test((e.innerText||'')+' '+(e.value||'')));
+                  if (e) { e.click(); return true; }
+                  return false;
+              }""")
+              if not clicked:
+                  page.locator('form').first.evaluate('(f) => f.submit()')
+
+              page.wait_for_timeout(8000)
+              print('=== RAKUTEN_OFFICIAL_TEST_FORM ===')
+              print('PAGE_URL=' + page.url)
+              print('API_RESPONSES=' + json.dumps(responses, ensure_ascii=False))
 
               page.close(); context.close(); browser.close()
 
-          print('=== RAKUTEN_KEYWORD_COMPARISON ===')
-          print('SUMMARY=' + json.dumps(results, ensure_ascii=False))
+          if not responses:
+              raise RuntimeError('楽天公式テストフォームからIchibaItem/Searchのレスポンスを取得できませんでした')
+          last = responses[-1]
+          if last.get('status') != 200:
+              raise RuntimeError('楽天公式テストフォームAPI HTTP失敗: ' + json.dumps({'http':last.get('status'),'content_type':last.get('content_type'),'body_head':last.get('body_head','')[:1000]}, ensure_ascii=False))
+          if not last.get('item_count'):
+              raise RuntimeError('楽天公式テストフォームAPIはHTTP 200だが商品0件: ' + json.dumps(last, ensure_ascii=False)[:3000])
+          print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps({'http':last.get('status'),'product_count':last.get('item_count'),'first_product_name':last.get('first_product_name')}, ensure_ascii=False))
           PY
           python /tmp/diag.py
