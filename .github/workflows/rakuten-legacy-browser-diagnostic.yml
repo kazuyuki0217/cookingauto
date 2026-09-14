@@ -18,7 +18,7 @@ jobs:
           pip install playwright
           playwright install --with-deps chromium
 
-      - name: 楽天API Referer送信状況診断
+      - name: 楽天API許可ドメイン別ブラウザ診断
         env:
           RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
           RAKUTEN_APPLICATION_ID: 5db6e350-5a71-4843-8d29-cf894bef88df
@@ -47,43 +47,46 @@ jobs:
               'formatVersion': 2,
           })
 
-          print('楽天API診断: Refererを明示的に付与し、実ブラウザの送信ヘッダーを確認します')
-          print('起点ページ:', page_url)
+          # 楽天管理画面に現在登録されている3候補を、同じブラウザ方式で個別検証する。
+          candidates = [
+              ('GitHub Pages', 'https://kazuyuki0217.github.io', 'https://kazuyuki0217.github.io/cookingauto/rakuten-test/'),
+              ('GAS', 'https://script.google.com', 'https://script.google.com/'),
+              ('Hatena', 'https://tansinfuninkazu.hatenablog.com', 'https://tansinfuninkazu.hatenablog.com/'),
+          ]
+
+          print('楽天API診断: 許可されたウェブサイト3候補をOrigin/Referer別に実ブラウザ検証します')
           print('API URL:', api_url.replace(key, '***'))
 
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
-              context = browser.new_context(extra_http_headers={
-                  'Referer': page_url,
-                  'Origin': 'https://kazuyuki0217.github.io',
-              })
-              page = context.new_page()
+              for name, origin, referer in candidates:
+                  print('\n==========', name, '==========')
+                  print('送信Origin:', origin)
+                  print('送信Referer:', referer)
+                  context = browser.new_context(extra_http_headers={
+                      'Origin': origin,
+                      'Referer': referer,
+                  })
+                  page = context.new_page()
+                  try:
+                      page.goto(page_url, wait_until='domcontentloaded', timeout=30000)
+                      response = page.goto(api_url, wait_until='domcontentloaded', timeout=30000)
+                      if response:
+                          print('楽天API HTTP:', response.status)
+                          print('楽天API Content-Type:', response.headers.get('content-type', ''))
+                          body = response.text()
+                          print('楽天API response body先頭:', body[:1000])
+                      else:
+                          print('楽天API HTTP: responseなし')
+                  except Exception as e:
+                      print('楽天API診断エラー:', repr(e))
+                  finally:
+                      context.close()
 
-              observed = {}
-
-              def on_request(request):
-                  if request.url.startswith('https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'):
-                      observed['url'] = request.url
-                      observed['headers'] = request.headers
-                      print('楽天API実送信Referer:', request.headers.get('referer', '(なし)'))
-                      print('楽天API実送信Origin:', request.headers.get('origin', '(なし)'))
-
-              page.on('request', on_request)
-              page.goto(page_url, wait_until='domcontentloaded', timeout=30000)
-              print('GitHub Pages HTTP:', page.url)
-
-              response = page.goto(api_url, wait_until='domcontentloaded', timeout=30000)
-              if not response:
-                  raise RuntimeError('楽天APIへの直接遷移でresponseオブジェクトを取得できませんでした')
-
-              print('楽天API HTTP:', response.status)
-              print('楽天API Content-Type:', response.headers.get('content-type', ''))
-              print('楽天API Location:', response.headers.get('location', ''))
-              body = response.text()
-              print('楽天API response body先頭:', body[:3000])
-
-              print('========================================')
-              print('★★ 楽天API Referer診断完了 ★★')
-              print('========================================')
               browser.close()
+
+          print('\n========================================')
+          print('★★ 許可ドメイン別楽天API診断完了 ★★')
+          print('HTTP 200になった候補があれば、そのOrigin/Refererを本番構成に採用します')
+          print('========================================')
           PY
