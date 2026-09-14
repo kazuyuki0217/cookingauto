@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from urllib.parse import urlencode
 
 from playwright.sync_api import sync_playwright
@@ -20,17 +21,14 @@ def _parse_jsonp(text):
     text = str(text or "").lstrip("\ufeff \r\n\t")
     if not text:
         raise ValueError("楽天APIレスポンス本文が空です。")
-
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-
     first = text.find("(")
     last = text.rfind(")")
     if first <= 0 or last <= first:
         raise ValueError("楽天APIレスポンスがJSON/JSONP形式ではありません。")
-
     payload = text[first + 1:last].strip().rstrip(";")
     return json.loads(payload)
 
@@ -97,7 +95,6 @@ def _search_once(keyword, hits):
                     diagnostics["rakuten_body"] = "BODY_READ_ERROR: " + str(body_error)
 
             def on_rakuten_route(route):
-                """RendererのscriptタグによるORBを避け、Playwright側で取得してから返す。"""
                 try:
                     upstream = route.fetch(timeout=60000)
                     status = upstream.status
@@ -110,9 +107,6 @@ def _search_once(keyword, hits):
                         diagnostics["rakuten_parsed"] = _parse_jsonp(body)
                     except Exception as parse_error:
                         diagnostics["rakuten_parsed"] = {"parse_error": str(parse_error)}
-
-                    # RakutenのJSON/JSONPレスポンスをJavaScriptとして返すことで、
-                    # 元のscriptタグがORB/CORBで止められる経路を回避する。
                     route.fulfill(
                         status=status,
                         body=body_bytes,
@@ -174,20 +168,61 @@ def _search_once(keyword, hits):
 
     raw_items = data.get("items") or data.get("Items") or []
     items = [_normalize_item(item) for item in raw_items]
-    items = [item for item in items if item]
-    if not items:
-        raise RuntimeError("楽天商品が見つかりません。検索語: " + keyword)
-    return items
+    return [item for item in items if item]
+
+
+def _fallback_keywords(keyword):
+    """料理名そのものを楽天検索に投げず、商品カテゴリへ段階的に絞り込む。"""
+    original = str(keyword or "").strip()
+    candidates = []
+
+    def add(value):
+        value = re.sub(r"\s+", " ", str(value or "")).strip()
+        if value and value not in candidates:
+            candidates.append(value)
+
+    add(original)
+
+    # 料理名・括弧内の付け合わせ等を落として主要な商品語を残す。
+    simplified = re.sub(r"[（(].*?[）)]", " ", original)
+    simplified = re.sub(r"\s+", " ", simplified).strip()
+    add(simplified)
+
+    # 商品カテゴリは料理名より優先して検索できるようにする。
+    category_words = [
+        "フライパン", "鍋", "包丁", "まな板", "キッチン用品", "保存容器", "調味料",
+    ]
+    for category in category_words:
+        if category in original or category in simplified:
+            add(category)
+
+    # 現在の呼び出しは「料理名 商品カテゴリ」なので、末尾の商品語を抽出。
+    for category in category_words:
+        if re.search(re.escape(category) + r"\s*$", original):
+            add(category)
+            break
+
+    # 最終的な汎用フォールバック。
+    if any(word in original for word in ["フライパン", "炒め", "焼き", "ステーキ", "肉"]):
+        add("フライパン")
+    elif any(word in original for word in ["包丁", "切る", "千切り"]):
+        add("包丁")
+    else:
+        add("キッチン用品")
+
+    return candidates
 
 
 def search_rakuten_browser(keyword, hits=10, access_key=None):
-    """既存パイプライン互換の楽天商品検索。
-
-    GitHub Actionsから楽天APIへ直接アクセスせず、GAS Webアプリの
-    ブラウザページをChromiumで開き、そのページから楽天JSONPを実行する。
-    Renderer側のORB/CORBをPlaywright route.fetch + fulfillで回避する。
-    access_key引数は既存呼び出しとの互換性のためだけに受け取る。
-    """
-    keyword = str(keyword or "").strip() or "フライパン"
+    """楽天商品検索。0件なら検索語を自動簡略化して再検索する。"""
     hits = max(1, min(int(hits), 30))
-    return _search_once(keyword, hits)
+    keywords = _fallback_keywords(keyword)
+    last_keyword = keywords[-1] if keywords else "フライパン"
+
+    for search_keyword in keywords:
+        last_keyword = search_keyword
+        items = _search_once(search_keyword, hits)
+        if items:
+            return items
+
+    raise RuntimeError("楽天商品が見つかりません。試行検索語: " + " / ".join(keywords))
