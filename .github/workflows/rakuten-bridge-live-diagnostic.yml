@@ -1,0 +1,60 @@
+name: 楽天ブラウザブリッジ実接続診断
+on:
+  push:
+    paths:
+      - '.github/workflows/rakuten-bridge-live-diagnostic.yml'
+  workflow_dispatch:
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: PlaywrightでGASブリッジを実接続診断
+        env:
+          GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVwbfrcQZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
+          SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
+        run: |
+          set -e
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium
+          cat > /tmp/diag.py <<'PY'
+          import json, os
+          from urllib.parse import urlencode
+          from playwright.sync_api import sync_playwright
+
+          gas = os.environ['GAS_URL']
+          secret = os.environ['SECRET']
+          url = gas + '?' + urlencode({
+              'service':'rakuten_browser',
+              'secret':secret,
+              'keyword':'フライパン',
+              'hits':'3'
+          })
+          with sync_playwright() as p:
+              browser = p.chromium.launch(headless=True)
+              context = browser.new_context()
+              page = context.new_page()
+              events = {'console':[], 'pageerror':[], 'requestfailed':[], 'responses':[]}
+              page.on('console', lambda m: events['console'].append(m.text[:500]))
+              page.on('pageerror', lambda e: events['pageerror'].append(str(e)[:1000]))
+              page.on('requestfailed', lambda r: events['requestfailed'].append({'url':r.url[:500], 'failure':str(r.failure)[:500]}))
+              page.on('response', lambda r: events['responses'].append({'url':r.url[:500], 'status':r.status}) if 'openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/' in r.url else None)
+              try:
+                  response = page.goto(url, wait_until='domcontentloaded', timeout=60000)
+                  print('=== BRIDGE PAGE ===')
+                  print(json.dumps({'status': response.status if response else None, 'url': page.url, 'title': page.title()}, ensure_ascii=False))
+                  print('=== BODY_HEAD ===')
+                  print((page.locator('body').inner_text(timeout=10000) if page.locator('body').count() else '')[:2000])
+                  try:
+                      page.wait_for_function('window.__RAKUTEN_DONE === true', timeout=25000)
+                  except Exception as e:
+                      print('WAIT_ERROR=' + str(e)[:500])
+                  print('=== RAKUTEN_RESULT ===')
+                  print(json.dumps(page.evaluate('window.__RAKUTEN_RESULT'), ensure_ascii=False)[:5000])
+              finally:
+                  print('=== EVENTS ===')
+                  print(json.dumps(events, ensure_ascii=False)[:10000])
+                  context.close()
+                  browser.close()
+          PY
+          python /tmp/diag.py
