@@ -1,6 +1,7 @@
-import json
 import os
-import requests
+from urllib.parse import urlencode
+
+from playwright.sync_api import sync_playwright
 
 RAKUTEN_GAS_URL = os.environ.get("RAKUTEN_GAS_URL") or os.environ.get("PINTEREST_GAS_URL", "")
 RAKUTEN_AUTOMATION_SECRET = os.environ.get("PINTEREST_AUTOMATION_SECRET", "")
@@ -12,31 +13,35 @@ def _normalize_item(item):
     return item if isinstance(item, dict) else {}
 
 
-def _call_gas(keyword, hits):
+def _search_once(keyword, hits):
     if not RAKUTEN_GAS_URL:
         raise RuntimeError("楽天GASブリッジURLが設定されていません。")
-    params = {
-        "service": "rakuten",
+    if not RAKUTEN_AUTOMATION_SECRET:
+        raise RuntimeError("PINTEREST_AUTOMATION_SECRETが設定されていません。")
+
+    query = urlencode({
+        "service": "rakuten_browser",
         "secret": RAKUTEN_AUTOMATION_SECRET,
         "keyword": keyword,
         "hits": str(hits),
-    }
-    try:
-        response = requests.get(RAKUTEN_GAS_URL, params=params, timeout=45)
-    except requests.RequestException as exc:
-        raise RuntimeError(f"楽天GASブリッジ通信エラー: {exc}") from exc
-    if response.status_code < 200 or response.status_code >= 300:
-        raise RuntimeError(f"楽天GASブリッジ HTTP {response.status_code}: {response.text[:1000]}")
-    try:
-        data = response.json()
-    except ValueError as exc:
-        raise RuntimeError(
-            "楽天GASブリッジ応答がJSONではありません。"
-            f" Content-Type={response.headers.get('content-type', '')}"
-            f" body={response.text[:1000]}"
-        ) from exc
-    if data.get("error"):
-        raise RuntimeError("楽天GASブリッジエラー: " + str(data["error"]))
+    })
+    url = RAKUTEN_GAS_URL.rstrip("?") + ("&" if "?" in RAKUTEN_GAS_URL else "?") + query
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_function("window.__RAKUTEN_DONE === true", timeout=30000)
+            data = page.evaluate("window.__RAKUTEN_RESULT")
+        finally:
+            browser.close()
+
+    if not isinstance(data, dict):
+        raise RuntimeError("楽天ブラウザブリッジの応答を取得できませんでした。")
+    if not data.get("success"):
+        raise RuntimeError("楽天ブラウザブリッジエラー: " + str(data.get("error", data)))
+
     raw_items = data.get("items") or data.get("Items") or []
     items = [_normalize_item(item) for item in raw_items]
     items = [item for item in items if item]
@@ -48,10 +53,12 @@ def _call_gas(keyword, hits):
 def search_rakuten_browser(keyword, hits=10, access_key=None):
     """既存パイプライン互換の楽天商品検索。
 
-    GitHub Actionsから楽天APIへ直接アクセスせず、公開GASブリッジへ
-    検索を委譲する。楽天のWebアプリケーション方式を維持するための
-    安全な構成で、access_key引数は互換性のためだけに受け取る。
+    GitHub Actionsから楽天APIへ直接アクセスせず、GAS Webアプリの
+    ブラウザページをChromiumで開き、そのページから楽天JSONPを実行する。
+    これにより楽天のWebアプリケーション方式を維持したまま、
+    UrlFetchApp由来のHTTP Referer制限を避ける。
+    access_key引数は既存呼び出しとの互換性のためだけに受け取る。
     """
     keyword = str(keyword or "").strip() or "フライパン"
     hits = max(1, min(int(hits), 30))
-    return _call_gas(keyword, hits)
+    return _search_once(keyword, hits)
