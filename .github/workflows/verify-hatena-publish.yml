@@ -27,7 +27,7 @@ jobs:
         env:
           HATENA_ID: ${{ secrets.HATENA_ID }}
           HATENA_API_KEY: ${{ secrets.HATENA_API_KEY }}
-          HATENA_ENDPOINT: https://blog.hatena.ne.jp/${{ secrets.HATENA_ID }}/tansinfuninkazu.hatenablog.com/atom/entry
+          HATENA_ENDPOINT: https://blog.hatena.ne.jp/tansinfuninkazu/tansinfuninkazu.hatenablog.com/atom/entry
           POST_TITLE_FILE: article_title.txt
           POST_BODY_FILE: article_final.html
         run: |
