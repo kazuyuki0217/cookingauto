@@ -10,7 +10,7 @@ jobs:
   diagnostic:
     runs-on: ubuntu-latest
     steps:
-      - name: 楽天公式APIテストフォームから実接続を確認
+      - name: 楽天公式テストフォームの実行経路を診断
         env:
           RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
         run: |
@@ -32,63 +32,57 @@ jobs:
               responses = []
 
               def on_response(r):
-                  if 'openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/' in r.url:
-                      item = {'status': r.status, 'content_type': r.headers.get('content-type')}
+                  if 'openapi.rakuten.co.jp' in r.url:
+                      item = {'url_host': r.url.split('/')[2], 'status': r.status, 'content_type': r.headers.get('content-type')}
                       try:
                           body = r.body().decode('utf-8', errors='replace')
-                          item['body_head'] = body[:4000]
-                          try:
-                              data = json.loads(body)
-                              items = data.get('items') or data.get('Items') or []
-                              item['item_count'] = len(items)
-                              item['first_product_name'] = items[0].get('itemName') if items and isinstance(items[0], dict) else None
-                              item['count'] = data.get('count')
-                          except Exception:
-                              pass
-                      except Exception as e:
-                          item['body_error'] = str(e)
+                          item['body_head'] = body[:3000]
+                      except Exception:
+                          pass
                       responses.append(item)
 
               page.on('response', on_response)
               page.goto(test_url, wait_until='domcontentloaded', timeout=60000)
+              page.wait_for_timeout(3000)
 
-              # Fill the official form without printing the access key.
+              inputs = page.locator('input').evaluate_all("""els => els.map(e => ({tag:e.tagName,type:e.type,name:e.name,id:e.id,placeholder:e.placeholder,valueLength:(e.value||'').length}))""")
+              buttons = page.locator('button, input[type=button], input[type=submit]').evaluate_all("""els => els.map(e => ({tag:e.tagName,type:e.type,text:(e.innerText||'').trim(),value:e.value||'',id:e.id,name:e.name}))""")
+              print('INPUTS=' + json.dumps(inputs, ensure_ascii=False))
+              print('BUTTONS=' + json.dumps(buttons, ensure_ascii=False))
+
+              # Set values using DOM properties and dispatch the events the form expects.
               page.locator('input').evaluate_all("""(els, values) => {
-                  const app = els.find(e => /application|app.?id/i.test((e.name||'')+' '+(e.id||'')+' '+(e.placeholder||'')));
-                  const key = els.find(e => /access.?key/i.test((e.name||'')+' '+(e.id||'')+' '+(e.placeholder||'')));
-                  if (app) { app.value = values.app; app.dispatchEvent(new Event('input',{bubbles:true})); app.dispatchEvent(new Event('change',{bubbles:true})); }
-                  if (key) { key.value = values.key; key.dispatchEvent(new Event('input',{bubbles:true})); key.dispatchEvent(new Event('change',{bubbles:true})); }
+                  const find = (rx) => els.find(e => rx.test((e.name||'')+' '+(e.id||'')+' '+(e.placeholder||'')));
+                  const app = find(/application|app.?id/i);
+                  const key = find(/access.?key/i);
+                  const keyword = find(/keyword|キーワード|検索キーワード/i);
+                  if (app) { app.focus(); app.value = values.app; app.dispatchEvent(new Event('input',{bubbles:true})); app.dispatchEvent(new Event('change',{bubbles:true})); }
+                  if (key) { key.focus(); key.value = values.key; key.dispatchEvent(new Event('input',{bubbles:true})); key.dispatchEvent(new Event('change',{bubbles:true})); }
+                  if (keyword) { keyword.focus(); keyword.value = 'フライパン'; keyword.dispatchEvent(new Event('input',{bubbles:true})); keyword.dispatchEvent(new Event('change',{bubbles:true})); }
               }""", {'app': app_id, 'key': access_key})
 
-              # Find keyword input and set フライパン.
-              page.locator('input').evaluate_all("""(els) => {
-                  const e = els.find(e => /keyword|キーワード|検索キーワード/i.test((e.name||'')+' '+(e.id||'')+' '+(e.placeholder||'')));
-                  if (e) { e.value = 'フライパン'; e.dispatchEvent(new Event('input',{bubbles:true})); e.dispatchEvent(new Event('change',{bubbles:true})); }
-              }""")
-
-              # If the form exposes a GET button, click it. Otherwise submit the first form.
+              # Prefer the visible GET control; otherwise invoke a likely form submit control.
               clicked = page.locator('button, input[type=button], input[type=submit]').evaluate_all("""els => {
-                  const e = els.find(e => /GET|送信|実行|Send/i.test((e.innerText||'')+' '+(e.value||'')));
-                  if (e) { e.click(); return true; }
-                  return false;
+                  const e = els.find(e => /^(GET|Send|送信|実行)$/i.test((e.innerText||e.value||'').trim()));
+                  if (!e) return false;
+                  e.click();
+                  return true;
               }""")
-              if not clicked:
-                  page.locator('form').first.evaluate('(f) => f.submit()')
+              print('GET_BUTTON_CLICKED=' + str(clicked))
+              page.wait_for_timeout(10000)
 
-              page.wait_for_timeout(8000)
               print('=== RAKUTEN_OFFICIAL_TEST_FORM ===')
               print('PAGE_URL=' + page.url)
               print('API_RESPONSES=' + json.dumps(responses, ensure_ascii=False))
+              print('BODY_TEXT_HEAD=' + page.locator('body').inner_text()[:5000])
 
               page.close(); context.close(); browser.close()
 
           if not responses:
-              raise RuntimeError('楽天公式テストフォームからIchibaItem/Searchのレスポンスを取得できませんでした')
-          last = responses[-1]
-          if last.get('status') != 200:
-              raise RuntimeError('楽天公式テストフォームAPI HTTP失敗: ' + json.dumps({'http':last.get('status'),'content_type':last.get('content_type'),'body_head':last.get('body_head','')[:1000]}, ensure_ascii=False))
-          if not last.get('item_count'):
-              raise RuntimeError('楽天公式テストフォームAPIはHTTP 200だが商品0件: ' + json.dumps(last, ensure_ascii=False)[:3000])
-          print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps({'http':last.get('status'),'product_count':last.get('item_count'),'first_product_name':last.get('first_product_name')}, ensure_ascii=False))
+              raise RuntimeError('公式テストフォームからopenapi.rakuten.co.jpへの実リクエストを確認できませんでした')
+          ok = [r for r in responses if r.get('status') == 200 and r.get('body_head')]
+          if not ok:
+              raise RuntimeError('公式テストフォーム経由の楽天API応答がHTTP 200になっていません: ' + json.dumps(responses, ensure_ascii=False)[:4000])
+          print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps(ok[-1], ensure_ascii=False))
           PY
           python /tmp/diag.py
