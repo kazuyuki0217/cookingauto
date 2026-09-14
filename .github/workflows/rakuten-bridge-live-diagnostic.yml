@@ -37,18 +37,25 @@ jobs:
               page.on('console', lambda m: events['console'].append(m.text[:500]))
               page.on('pageerror', lambda e: events['pageerror'].append(str(e)[:1000]))
               page.on('requestfailed', lambda r: events['requestfailed'].append({'url':r.url[:500], 'failure':str(r.failure)[:500]}))
-
               api = p.request.new_context(extra_http_headers={'Origin': allowed_origin, 'Referer': allowed_origin + '/'})
 
               def route_handler(route):
                   try:
                       req_url = route.request.url
-                      parsed = urlparse(req_url)
-                      qs = dict(parse_qsl(parsed.query))
+                      qs = dict(parse_qsl(urlparse(req_url).query))
                       upstream = api.get(req_url, timeout=60000, headers={'Origin': allowed_origin, 'Referer': allowed_origin + '/'})
-                      body = upstream.body()
-                      head = body.decode('utf-8', errors='replace')[:5000]
-                      print('RAKUTEN_UPSTREAM=' + json.dumps({'status': upstream.status, 'content_type': upstream.headers.get('content-type'), 'body_head': head}, ensure_ascii=False))
+                      raw = upstream.body()
+                      text = raw.decode('utf-8', errors='replace').lstrip('\ufeff \r\n\t')
+                      print('RAKUTEN_UPSTREAM=' + json.dumps({'status': upstream.status, 'content_type': upstream.headers.get('content-type'), 'body_head': text[:5000]}, ensure_ascii=False))
+                      callback = str(qs.get('callback', '')).strip()
+                      body = raw
+                      if callback:
+                          try:
+                              parsed = json.loads(text)
+                              body = (callback + '(' + json.dumps(parsed, ensure_ascii=False, separators=(',', ':')) + ');').encode('utf-8')
+                              print('RAKUTEN_JSON_TO_JSONP=wrapped')
+                          except json.JSONDecodeError:
+                              print('RAKUTEN_JSON_TO_JSONP=already_jsonp_or_nonjson')
                       route.fulfill(status=upstream.status, body=body, headers={'Content-Type':'application/javascript; charset=utf-8'})
                   except Exception as e:
                       print('ROUTE_FETCH_ERROR=' + str(e)[:2000])
