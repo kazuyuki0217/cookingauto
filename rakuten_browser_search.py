@@ -1,31 +1,14 @@
 import json
 import os
-from urllib.parse import quote, urlencode, urlparse
+import re
+from urllib.parse import urlencode
 
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
 
-RAKUTEN_PAGES_URL = os.environ.get("RAKUTEN_PAGES_URL", "https://tansinfuninkazu.hatenablog.com/").strip()
-RAKUTEN_API_URL = "https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701"
-RAKUTEN_APPLICATION_ID = "5db6e350-5a71-4843-8d29-cf894bef88df"
-RAKUTEN_AFFILIATE_ID = "56e8483c.b8c4995b.56a8483d.205a3086"
-
-
-def _safe_url(value):
-    try:
-        parsed = urlparse(value)
-        return parsed.scheme + "://" + parsed.netloc + parsed.path
-    except Exception:
-        return "unknown"
-
-
-def _rakuten_error(result):
-    if not isinstance(result, dict):
-        return None
-    if result.get("error"):
-        return json.dumps(result, ensure_ascii=False)
-    if result.get("errors"):
-        return json.dumps({"errors": result["errors"]}, ensure_ascii=False)
-    return None
+RAKUTEN_GAS_URL = os.environ.get("RAKUTEN_GAS_URL") or os.environ.get("PINTEREST_GAS_URL", "")
+RAKUTEN_AUTOMATION_SECRET = os.environ.get("PINTER_AUTOMATION_SECRET", "") or os.environ.get("PINTEREST_AUTOMATION_SECRET", "")
+RAKUTEN_API_MARKER = "openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/"
+RAKUTEN_ALLOWED_ORIGIN = "https://tansinfuninkazu.hatenablog.com"
 
 
 def _normalize_item(item):
@@ -34,127 +17,131 @@ def _normalize_item(item):
     return item if isinstance(item, dict) else {}
 
 
-def search_rakuten_browser(keyword, hits=10, access_key=None):
-    access_key = str(access_key or os.environ.get("RAKUTEN_ACCESS_KEY", "")).strip()
-    if not access_key:
-        raise RuntimeError("RAKUTEN_ACCESS_KEY is not configured.")
+def _parse_jsonp(text):
+    text = str(text or "").lstrip("\ufeff \r\n\t")
+    if not text:
+        raise ValueError("楽天APIレスポンス本文が空です。")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    first = text.find("(")
+    last = text.rfind(")")
+    if first <= 0 or last <= first:
+        raise ValueError("楽天APIレスポンスがJSON/JSONP形式ではありません。")
+    return json.loads(text[first + 1:last].strip().rstrip(";"))
 
-    keyword = str(keyword or "").strip() or "フライパン"
-    hits = max(1, min(int(hits), 30))
-    diagnostics = {
-        "page": _safe_url(RAKUTEN_PAGES_URL),
-        "keyword": keyword,
-        "transport": "browser_top_level_navigation",
-        "access_key": "configured",
-    }
 
-    params = {
-        "applicationId": RAKUTEN_APPLICATION_ID,
-        "accessKey": access_key,
-        "affiliateId": RAKUTEN_AFFILIATE_ID,
-        "keyword": keyword,
-        "hits": str(hits),
-        "page": "1",
-        "format": "json",
-        "formatVersion": "2",
-    }
-    api_url = RAKUTEN_API_URL + "?" + urlencode(params, quote_via=quote)
+def _response_summary(parsed, body):
+    if not isinstance(parsed, dict):
+        return {"parsed_type": type(parsed).__name__}
+    raw_items = parsed.get("Items")
+    if raw_items is None:
+        raw_items = parsed.get("items")
+    return {"keys": list(parsed.keys())[:30], "errors": parsed.get("errors"), "count_field": parsed.get("count"), "page_count": parsed.get("pageCount"), "items_type": type(raw_items).__name__ if raw_items is not None else None, "items_length": len(raw_items) if isinstance(raw_items, list) else None, "body_head": str(body or "")[:1200]}
 
+
+def _make_data_from_parsed(parsed, diagnostics=None):
+    if not isinstance(parsed, dict):
+        return None
+    if parsed.get("error") or parsed.get("errors"):
+        return {"success": False, "error": parsed.get("error_description") or parsed.get("error") or parsed.get("errors")}
+    raw_items = parsed.get("Items")
+    if raw_items is None:
+        raw_items = parsed.get("items")
+    if raw_items is None:
+        raw_items = []
+    result = {"success": True, "count": len(raw_items) if isinstance(raw_items, list) else 0, "items": raw_items}
+    if diagnostics is not None:
+        result["rakuten_diagnostics"] = diagnostics
+    return result
+
+
+def _search_once(keyword, hits):
+    if not RAKUTEN_GAS_URL:
+        raise RuntimeError("楽天GASブリッジURLが設定されていません。")
+    if not RAKUTEN_AUTOMATION_SECRET:
+        raise RuntimeError("PINTEREST_AUTOMATION_SECRETが設定されていません。")
+    query = urlencode({"service": "rakuten_browser", "secret": RAKUTEN_AUTOMATION_SECRET, "keyword": keyword, "hits": str(hits)})
+    url = RAKUTEN_GAS_URL.rstrip("?") + ("&" if "?" in RAKUTEN_GAS_URL else "?") + query
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context()
-        page = context.new_page()
-        api_response = {}
-        request_failure = {}
-
-        def capture_response(response):
-            if response.url.startswith(RAKUTEN_API_URL):
-                body = ""
-                try:
-                    if response.status >= 400:
-                        body = response.text()[:2000]
-                except Exception:
-                    body = ""
-                api_response.update({
-                    "status": response.status,
-                    "status_text": response.status_text,
-                    "content_type": response.headers.get("content-type", ""),
-                    "url": _safe_url(response.url),
-                    "body_head": body,
-                })
-
-        def capture_request_failed(request):
-            if request.url.startswith(RAKUTEN_API_URL):
-                request_failure.update({
-                    "failure": request.failure,
-                    "url": _safe_url(request.url),
-                })
-
-        page.on("response", capture_response)
-        page.on("requestfailed", capture_request_failed)
-
+        context = browser.new_context(extra_http_headers={"Origin": RAKUTEN_ALLOWED_ORIGIN, "Referer": RAKUTEN_ALLOWED_ORIGIN + "/"})
         try:
-            page.goto(RAKUTEN_PAGES_URL, wait_until="domcontentloaded", timeout=30000)
-            response = page.goto(
-                api_url,
-                wait_until="domcontentloaded",
-                timeout=30000,
-            )
-
-            if response is None:
-                raise RuntimeError("楽天APIからHTTPレスポンスを取得できませんでした。")
-
-            status = response.status
-            content_type = response.headers.get("content-type", "")
-            body = response.text()
-
-            api_response.update({
-                "status": status,
-                "status_text": response.status_text,
-                "content_type": content_type,
-                "url": _safe_url(response.url),
-                "body_head": body[:2000],
-            })
-
-            if status < 200 or status >= 300:
-                raise RuntimeError(
-                    "楽天API HTTP " + str(status) + ": " + body[:2000]
-                )
-
+            page = context.new_page()
+            diagnostics = {"rakuten_status": None, "rakuten_url": "", "rakuten_body": "", "rakuten_parsed": None, "rakuten_summary": None, "route_fetch_error": "", "console": [], "page_errors": [], "request_failed": []}
+            def record(body, status, request_url):
+                diagnostics["rakuten_status"] = status
+                diagnostics["rakuten_url"] = request_url.split("accessKey=")[0] + "accessKey=[hidden]"
+                diagnostics["rakuten_body"] = body[:3000]
+                try:
+                    parsed = _parse_jsonp(body)
+                    diagnostics["rakuten_parsed"] = parsed
+                    diagnostics["rakuten_summary"] = _response_summary(parsed, body)
+                except Exception as e:
+                    diagnostics["rakuten_parsed"] = {"parse_error": str(e)}
+            def capture(response):
+                if RAKUTEN_API_MARKER in response.url:
+                    try: record(response.body().decode("utf-8", errors="replace"), response.status, response.url)
+                    except Exception as e: diagnostics["rakuten_body"] = "BODY_READ_ERROR: " + str(e)
+            def route_handler(route):
+                try:
+                    upstream = route.fetch(timeout=60000)
+                    body = upstream.body()
+                    record(body.decode("utf-8", errors="replace"), upstream.status, route.request.url)
+                    route.fulfill(status=upstream.status, body=body, headers={"Content-Type": "application/javascript; charset=utf-8"})
+                except Exception as e:
+                    diagnostics["route_fetch_error"] = str(e)[:1000]
+                    route.abort()
+            page.on("response", capture)
+            page.on("requestfailed", lambda r: diagnostics["request_failed"].append(str(r.failure or "unknown failure")[:500]) if RAKUTEN_API_MARKER in r.url else None)
+            page.route("**/IchibaItem/Search/**", route_handler)
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
             try:
-                result = json.loads(body)
-            except json.JSONDecodeError as exc:
-                raise RuntimeError(
-                    "楽天API応答がJSONではありません。Content-Type="
-                    + content_type
-                    + " body="
-                    + body[:2000]
-                ) from exc
-
-            error = _rakuten_error(result)
-            if error:
-                raise RuntimeError("楽天APIエラー: " + error)
-
-            raw_items = result.get("Items") or result.get("items") or []
-            items = [_normalize_item(item) for item in raw_items]
-            items = [item for item in items if item]
-            if not items:
-                raise RuntimeError(
-                    "楽天商品が見つかりません。検索語: " + keyword
-                )
-            return items
-
-        except PlaywrightTimeoutError as exc:
-            raise RuntimeError(
-                "楽天API検索タイムアウト。診断: "
-                + json.dumps({**diagnostics, "api_response": api_response, "request_failure": request_failure}, ensure_ascii=False)
-            ) from exc
-        except Exception as exc:
-            raise RuntimeError(
-                "楽天ブラウザAPI検索に失敗しました: " + str(exc)
-                + " | 診断: "
-                + json.dumps({**diagnostics, "api_response": api_response, "request_failure": request_failure}, ensure_ascii=False)
-            ) from exc
+                page.wait_for_function("window.__RAKUTEN_DONE === true", timeout=30000)
+                data = page.evaluate("window.__RAKUTEN_RESULT")
+            except Exception as exc:
+                data = _make_data_from_parsed(diagnostics.get("rakuten_parsed"), diagnostics)
+                if data is None:
+                    raise RuntimeError("楽天ブラウザ検索が完了しませんでした。診断: " + json.dumps(diagnostics, ensure_ascii=False)[:8000]) from exc
         finally:
             context.close()
             browser.close()
+    if not isinstance(data, dict):
+        raise RuntimeError("楽天ブラウザブリッジの応答を取得できませんでした。")
+    if not data.get("success"):
+        raise RuntimeError("楽天ブラウザブリッジエラー: " + str(data.get("error", data)))
+    raw_items = data.get("items") or data.get("Items") or []
+    items = [_normalize_item(item) for item in raw_items]
+    return [item for item in items if item], data.get("rakuten_diagnostics")
+
+
+def _fallback_keywords(keyword):
+    original = str(keyword or "").strip()
+    candidates = []
+    def add(value):
+        value = re.sub(r"\s+", " ", str(value or "")).strip()
+        if value and value not in candidates: candidates.append(value)
+    add(original)
+    simplified = re.sub(r"[（(].*?[）)]", " ", original)
+    add(simplified)
+    for category in ["フライパン", "鍋", "包丁", "まな板", "キッチン用品", "保存容器", "調味料"]:
+        if category in original or category in simplified: add(category)
+    if any(w in original for w in ["フライパン", "炒め", "焼き", "ステーキ", "肉"]): add("フライパン")
+    elif any(w in original for w in ["包丁", "切る", "千切り"]): add("包丁")
+    else: add("キッチン用品")
+    return candidates
+
+
+def search_rakuten_browser(keyword, hits=10, access_key=None):
+    hits = max(1, min(int(hits), 30))
+    keywords = _fallback_keywords(keyword)
+    diagnostics = []
+    for search_keyword in keywords:
+        try:
+            items, detail = _search_once(search_keyword, hits)
+            if items: return items
+            diagnostics.append(search_keyword + ": 商品0件 / " + json.dumps(detail or {}, ensure_ascii=False)[:5000])
+        except Exception as exc:
+            diagnostics.append(search_keyword + ": " + str(exc)[:5000])
+    raise RuntimeError("楽天商品が見つかりません。試行検索語: " + " / ".join(keywords) + "\n楽天API診断: " + " || ".join(diagnostics))
