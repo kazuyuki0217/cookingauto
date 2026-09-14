@@ -3,12 +3,13 @@ import re
 from html import escape
 from pathlib import Path
 
-import requests
-
 from rakuten_browser_search import search_rakuten_browser
 
 RAKUTEN_GAS_URL = os.environ.get("RAKUTEN_GAS_URL", "").strip()
-RAKUTEN_AUTOMATION_SECRET = os.environ.get("RAKUTEN_AUTOMATION_SECRET", "").strip()
+RAKUTEN_AUTOMATION_SECRET = (
+    os.environ.get("RAKUTEN_AUTOMATION_SECRET", "").strip()
+    or os.environ.get("PINTEREST_AUTOMATION_SECRET", "").strip()
+)
 RAKUTEN_PAGES_URL = os.environ.get(
     "RAKUTEN_PAGES_URL",
     "https://tansinfuninkazu.hatenablog.com/",
@@ -20,51 +21,6 @@ def find_photo_url():
     if not url and Path("cooking_image_url.txt").exists():
         url = Path("cooking_image_url.txt").read_text(encoding="utf-8").strip()
     return url if url.startswith(("https://", "http://")) else ""
-
-
-def _gas_post(payload):
-    """POST to Apps Script while preserving the redirect session/cookies."""
-    if not RAKUTEN_GAS_URL:
-        raise RuntimeError("RAKUTEN_GAS_URLが設定されていません。")
-    if not RAKUTEN_AUTOMATION_SECRET:
-        raise RuntimeError("楽天ブリッジ認証Secretが設定されていません。")
-
-    session = requests.Session()
-    response = session.post(
-        RAKUTEN_GAS_URL,
-        json=payload,
-        timeout=30,
-        allow_redirects=True,
-    )
-    if response.status_code < 200 or response.status_code >= 300:
-        raise RuntimeError(
-            f"GAS楽天ブリッジHTTP {response.status_code}: {response.text[:1000]}"
-        )
-    try:
-        return response.json()
-    except ValueError as exc:
-        raise RuntimeError(
-            "GAS楽天ブリッジのJSON解析に失敗しました。"
-            f" レスポンス先頭: {response.text[:500]}"
-        ) from exc
-
-
-def get_rakuten_access_key():
-    """Use the access key already verified by the workflow health check when available."""
-    existing = os.environ.get("RAKUTEN_ACCESS_KEY", "").strip()
-    if existing:
-        return existing
-
-    data = _gas_post({
-        "service": "rakuten_key",
-        "secret": RAKUTEN_AUTOMATION_SECRET,
-    })
-    if not data.get("success") or not data.get("accessKey"):
-        raise RuntimeError(
-            "GASから楽天アクセスキーを取得できませんでした。"
-            + (f" 詳細: {data.get('error')}" if data.get("error") else "")
-        )
-    return str(data["accessKey"]).strip()
 
 
 def _tokens(text):
@@ -102,12 +58,20 @@ def _normalize_item(item):
 
 
 def search_rakuten_via_browser(keywords, hits=10):
-    """Search Rakuten through the registered Hatena origin using browser JSONP."""
-    access_key = get_rakuten_access_key()
+    """Search Rakuten through the GAS-hosted browser page.
+
+    Rakuten credentials are intentionally not fetched into GitHub Actions.
+    The GAS HTML page obtains the credentials from Script Properties and
+    executes the Rakuten JSONP request in the browser context.
+    """
+    if not RAKUTEN_GAS_URL:
+        raise RuntimeError("RAKUTEN_GAS_URLが設定されていません。")
+    if not RAKUTEN_AUTOMATION_SECRET:
+        raise RuntimeError("楽天ブリッジ認証Secretが設定されていません。")
 
     all_items = []
     for keyword in [str(x).strip() for x in keywords if str(x).strip()][:5]:
-        items = search_rakuten_browser(keyword, hits, access_key=access_key)
+        items = search_rakuten_browser(keyword, hits)
         all_items.extend(_normalize_item(item) for item in items)
     return all_items
 
