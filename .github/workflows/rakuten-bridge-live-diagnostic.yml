@@ -1,4 +1,4 @@
-# Rakuten API browser-origin diagnostic: browser fetch with explicit Origin + Referer
+# Rakuten API browser-origin diagnostic: JSONP script from Hatena-origin browser
 name: 楽天ブラウザブリッジ実接続診断
 on:
   push:
@@ -20,13 +20,13 @@ jobs:
           python -m playwright install --with-deps chromium
           cat > /tmp/diag.py <<'PY'
           import json, os, re
-          from urllib.parse import urlencode, urlparse
+          from urllib.parse import urlencode
           from playwright.sync_api import sync_playwright
 
           hatena = os.environ['HATENA_URL']
-          origin = '{uri.scheme}://{uri.netloc}'.format(uri=urlparse(hatena))
           access_key = os.environ['RAKUTEN_ACCESS_KEY']
           api = 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'
+          callback = 'rakutenDiagnosticCallback'
           params = {
               'applicationId':'5db6e350-5a71-4843-8dcf-894bef88df',
               'accessKey':access_key,
@@ -39,7 +39,8 @@ jobs:
               'sort':'-reviewCount',
               'orFlag':'1',
               'availability':'1',
-              'imageFlag':'1'
+              'imageFlag':'1',
+              'callback':callback
           }
           api_url = api + '?' + urlencode(params)
 
@@ -48,67 +49,40 @@ jobs:
               context = browser.new_context()
               page = context.new_page()
               captured = {}
-
-              def on_request(request):
-                  if '/IchibaItem/Search/' in request.url:
-                      captured['request_referer'] = request.headers.get('referer')
-                      captured['request_origin'] = request.headers.get('origin')
-
-              def on_response(response):
-                  if '/IchibaItem/Search/' in response.url:
-                      captured['status'] = response.status
-                      captured['content_type'] = response.headers.get('content-type')
-                      try:
-                          captured['body'] = response.body().decode('utf-8', errors='replace')
-                      except Exception as e:
-                          captured['body_error'] = str(e)
-
-              def route_handler(route):
-                  headers = dict(route.request.headers)
-                  headers['referer'] = hatena
-                  headers['origin'] = origin
-                  route.continue_(headers=headers)
-
-              page.on('request', on_request)
-              page.on('response', on_response)
-              page.route('https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/**', route_handler)
+              page.on('response', lambda r: captured.update({'status': r.status, 'content_type': r.headers.get('content-type'), 'body': r.body().decode('utf-8', errors='replace')}) if '/IchibaItem/Search/' in r.url else None)
               page.goto(hatena, wait_until='domcontentloaded', timeout=60000)
-              print('=== TEST_REAL_HATENA_BROWSER_FETCH_EXPLICIT_ORIGIN_REFERER ===')
-
-              result = page.evaluate("""async (url) => {
-                try {
-                  const r = await fetch(url, {method:'GET', credentials:'omit'});
-                  return {ok:r.ok, status:r.status, type:r.type, text:await r.text()};
-                } catch (e) {
-                  return {fetch_error:String(e)};
-                }
+              page.evaluate("""(url) => {
+                window.__RAKUTEN_CALLBACK_DATA = null;
+                window.rakutenDiagnosticCallback = (data) => { window.__RAKUTEN_CALLBACK_DATA = data; };
+                const s = document.createElement('script');
+                s.id = 'rakuten-diagnostic-jsonp';
+                s.src = url;
+                s.async = true;
+                s.onerror = () => { window.__RAKUTEN_SCRIPT_ERROR = true; };
+                document.head.appendChild(s);
               }""", api_url)
-
-              page.wait_for_timeout(2000)
-              print('BROWSER_FETCH_RESULT=' + json.dumps(result, ensure_ascii=False)[:3000])
+              try:
+                  page.wait_for_function("window.__RAKUTEN_CALLBACK_DATA !== null || window.__RAKUTEN_SCRIPT_ERROR === true", timeout=30000)
+              except Exception:
+                  pass
+              result = page.evaluate("({callback: window.__RAKUTEN_CALLBACK_DATA, scriptError: !!window.__RAKUTEN_SCRIPT_ERROR})")
+              page.wait_for_timeout(1000)
+              print('=== TEST_HATENA_BROWSER_JSONP ===')
+              print('JSONP_CALLBACK=' + json.dumps(result.get('callback'), ensure_ascii=False)[:5000])
+              print('JSONP_SCRIPT_ERROR=' + str(result.get('scriptError')))
               print('NETWORK_STATUS=' + str(captured.get('status')))
               print('NETWORK_CONTENT_TYPE=' + str(captured.get('content_type')))
-              print('NETWORK_REFERER_PRESENT=' + str(bool(captured.get('request_referer'))))
-              print('NETWORK_ORIGIN_PRESENT=' + str(bool(captured.get('request_origin'))))
               print('NETWORK_BODY_HEAD=' + captured.get('body','')[:2000])
               page.close(); context.close(); browser.close()
 
-          status = captured.get('status')
-          body = captured.get('body','')
-          if status != 200:
-              raise RuntimeError('楽天APIブラウザ実接続 HTTPエラー: ' + str(status) + ' ' + body[:1000])
-
-          if body.startswith('{'):
-              data = json.loads(body)
-          else:
-              match = re.search(r'^[^(]+\((.*)\)\s*;?\s*$', body, re.S)
-              if not match:
-                  raise RuntimeError('楽天API応答をJSON/JSONPとして解析できませんでした: ' + body[:1000])
-              data = json.loads(match.group(1))
-
+          data = result.get('callback')
+          if not isinstance(data, dict):
+              raise RuntimeError('楽天API JSONPコールバックを取得できませんでした: ' + json.dumps(result, ensure_ascii=False)[:3000])
+          if data.get('error') or data.get('errors'):
+              raise RuntimeError('楽天API JSONPエラー: ' + json.dumps(data, ensure_ascii=False)[:3000])
           items = data.get('items') or data.get('Items') or []
           if not items:
-              raise RuntimeError('楽天APIは200だが商品0件: ' + json.dumps(data, ensure_ascii=False)[:5000])
-          print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps({'http':'200','product_count':len(items),'first_product_name':items[0].get('itemName') if isinstance(items[0],dict) else None}, ensure_ascii=False))
+              raise RuntimeError('楽天API JSONPは成功したが商品0件: ' + json.dumps(data, ensure_ascii=False)[:5000])
+          print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps({'http':str(captured.get('status')), 'product_count':len(items), 'first_product_name':items[0].get('itemName') if isinstance(items[0],dict) else None}, ensure_ascii=False))
           PY
           python /tmp/diag.py
