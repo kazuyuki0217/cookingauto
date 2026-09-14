@@ -13,7 +13,7 @@ jobs:
           python-version: '3.12'
       - name: Install HTTP client
         run: python -m pip install --upgrade pip requests
-      - name: 楽天API Referer直接送信診断
+      - name: 楽天API Origin Referer直接送信診断
         env:
           RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
         run: |
@@ -39,12 +39,15 @@ jobs:
               'formatVersion': '2',
           }
           url = api + '?' + urlencode(params)
-          referer = 'https://tansinfuninkazu.hatenablog.com/'
+          origin = 'https://tansinfuninkazu.hatenablog.com'
+          referer = origin + '/'
 
           print('楽天API診断: HTTPSリクエストを開始します')
+          print('楽天API診断: Origin:', origin)
           print('楽天API診断: Referer:', referer)
 
           headers = {
+              'Origin': origin,
               'Referer': referer,
               'User-Agent': 'Mozilla/5.0 (compatible; cookingauto/1.0)',
               'Accept': 'application/json',
