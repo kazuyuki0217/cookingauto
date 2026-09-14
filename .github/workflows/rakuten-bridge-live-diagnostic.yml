@@ -48,7 +48,7 @@ jobs:
               page.on('response', on_response)
               print('=== TEST_REAL_HATENA_PAGE_BROWSER_FETCH_EXPLICIT_REFERRER ===')
               page.goto(hatena, wait_until='domcontentloaded', timeout=60000)
-              result = page.evaluate("""async (url, referrer) => {
+              result = page.evaluate("""async ({url, referrer}) => {
                 try {
                   const r = await fetch(url, {
                     method:'GET',
@@ -60,10 +60,18 @@ jobs:
                 } catch (e) {
                   return {fetch_error:String(e)};
                 }
-              }""", api_url, hatena)
+              }""", {'url': api_url, 'referrer': hatena})
               page.wait_for_timeout(3000)
-              print('BROWSER_FETCH_RESULT=' + json.dumps(result, ensure_ascii=False)[:12000])
-              print('RAKUTEN_NETWORK_CAPTURE=' + json.dumps(captured, ensure_ascii=False)[:12000])
+              safe_result = dict(result)
+              if 'text' in safe_result:
+                  try:
+                      parsed = json.loads(safe_result['text'])
+                      safe_result['text_summary'] = {'count': len(parsed.get('items') or parsed.get('Items') or []), 'first_product_name': ((parsed.get('items') or parsed.get('Items') or [{}])[0].get('itemName') if (parsed.get('items') or parsed.get('Items')) else None)}
+                  except Exception:
+                      safe_result['text_summary'] = safe_result['text'][:500]
+                  del safe_result['text']
+              print('BROWSER_FETCH_RESULT=' + json.dumps(safe_result, ensure_ascii=False)[:12000])
+              print('RAKUTEN_NETWORK_CAPTURE=' + json.dumps({k:v for k,v in captured.items() if k != 'body'}, ensure_ascii=False)[:12000])
               page.close(); context.close(); browser.close()
 
               body = captured.get('body','')
