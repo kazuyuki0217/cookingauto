@@ -43,43 +43,39 @@ jobs:
           url = api + '?' + urlencode(params)
           origin = 'https://tansinfuninkazu.hatenablog.com/'
 
-          print('楽天API旧方式診断: Hatenaページを開きます')
-          print('楽天API旧方式診断: APIへブラウザfetchします')
+          print('楽天API診断: Hatenaページを開きます')
 
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
-              page = browser.new_page(extra_http_headers={
-                  'Referer': origin,
-                  'Accept': 'application/json',
-              })
+              context = browser.new_context()
+              page = context.new_page()
               page.goto(origin, wait_until='domcontentloaded', timeout=30000)
 
-              result = page.evaluate('''async ({url, referer}) => {
-                  const r = await fetch(url, {
-                      method: 'GET',
-                      headers: {
-                          'Accept': 'application/json',
-                          'Referer': referer
-                      }
-                  });
-                  return {
-                      status: r.status,
-                      contentType: r.headers.get('content-type') || '',
-                      url: r.url,
-                      text: await r.text()
-                  };
-              }''', {'url': url, 'referer': origin})
+              print('楽天API診断: 現在ページ:', page.url)
+              print('楽天API診断: HatenaページからAPIへ遷移してRefererを発生させます')
 
-              print('楽天API HTTP:', result['status'])
-              print('楽天API Content-Type:', result['contentType'])
-              print('楽天API URL:', result['url'])
-              if result['status'] < 200 or result['status'] >= 300:
-                  print('楽天APIエラー本文:', result['text'][:2000])
-                  raise RuntimeError(f"楽天API HTTPエラー: {result['status']}")
+              # fetch() の Referer ヘッダーはブラウザ側で無視・書換えされる場合があるため、
+              # Playwrightのpage.goto(..., referer=...)で実際のHTTP Refererを指定する。
+              response = page.goto(url, referer=origin, wait_until='domcontentloaded', timeout=30000)
+              if response is None:
+                  raise RuntimeError('楽天APIへのHTTPレスポンスを取得できませんでした')
+
+              status = response.status
+              content_type = response.headers.get('content-type', '')
+              text = response.text()
+
+              print('楽天API HTTP:', status)
+              print('楽天API Content-Type:', content_type)
+              print('楽天API URL:', response.url)
+
+              if status < 200 or status >= 300:
+                  print('楽天APIエラー本文:', text[:2000])
+                  raise RuntimeError(f'楽天API HTTPエラー: {status}')
+
               try:
-                  data = json.loads(result['text'])
+                  data = json.loads(text)
               except Exception:
-                  print('楽天API本文:', result['text'][:2000])
+                  print('楽天API本文:', text[:2000])
                   raise RuntimeError('楽天API応答がJSONではありません')
 
               items = data.get('items', [])
@@ -93,6 +89,7 @@ jobs:
                   raise RuntimeError('楽天APIは200ですが商品が0件です')
               if not any(item.get('affiliateUrl') for item in items):
                   raise RuntimeError('楽天APIは商品を返しましたがaffiliateUrlがありません')
-              print('楽天API旧ブラウザ方式: 接続成功・affiliateUrl取得成功')
+
+              print('楽天API: 接続成功・商品取得成功・affiliateUrl取得成功')
               browser.close()
           PY
