@@ -8,6 +8,7 @@ from playwright.sync_api import sync_playwright
 RAKUTEN_GAS_URL = os.environ.get("RAKUTEN_GAS_URL") or os.environ.get("PINTEREST_GAS_URL", "")
 RAKUTEN_AUTOMATION_SECRET = os.environ.get("PINTEREST_AUTOMATION_SECRET", "")
 RAKUTEN_API_MARKER = "openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/"
+RAKUTEN_ALLOWED_ORIGIN = "https://tansinfuninkazu.hatenablog.com"
 
 
 def _normalize_item(item):
@@ -37,10 +38,12 @@ def _response_summary(parsed, body):
     raw_items = parsed.get("Items")
     if raw_items is None:
         raw_items = parsed.get("items")
+    errors = parsed.get("errors")
     return {
         "keys": list(parsed.keys())[:30],
         "error": parsed.get("error"),
         "error_description": parsed.get("error_description"),
+        "errors": errors,
         "count_field": parsed.get("count"),
         "page_count": parsed.get("pageCount"),
         "items_type": type(raw_items).__name__ if raw_items is not None else None,
@@ -52,8 +55,9 @@ def _response_summary(parsed, body):
 def _make_data_from_parsed(parsed, diagnostics=None):
     if not isinstance(parsed, dict):
         return None
-    if parsed.get("error"):
-        return {"success": False, "error": parsed.get("error_description") or parsed.get("error")}
+    if parsed.get("error") or parsed.get("errors"):
+        err = parsed.get("error_description") or parsed.get("error") or parsed.get("errors")
+        return {"success": False, "error": err}
     raw_items = parsed.get("Items")
     if raw_items is None:
         raw_items = parsed.get("items")
@@ -77,7 +81,13 @@ def _search_once(keyword, hits):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         try:
-            page = browser.new_page()
+            context = browser.new_context(
+                extra_http_headers={
+                    "Origin": RAKUTEN_ALLOWED_ORIGIN,
+                    "Referer": RAKUTEN_ALLOWED_ORIGIN + "/",
+                }
+            )
+            page = context.new_page()
             diagnostics = {"rakuten_status": None, "rakuten_url": "", "rakuten_body": "", "rakuten_parsed": None,
                            "rakuten_summary": None, "route_fetch_error": "", "console": [], "page_errors": [], "request_failed": []}
 
