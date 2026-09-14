@@ -64,9 +64,10 @@ jobs:
               page.route('**/IchibaItem/Search/**', route_handler)
               page.on('response', lambda r: events['responses'].append({'url':r.url[:500], 'status':r.status}) if marker in r.url else None)
 
-              print('=== TEST CURRENT_GAS_DEPLOYMENT_URL ===')
+              print('=== TEST VERIFIED_GAS_SECRET_URL ===')
               response = page.goto(url, wait_until='domcontentloaded', timeout=60000)
               print(json.dumps({'status': response.status if response else None, 'url': page.url, 'title': page.title()}, ensure_ascii=False))
+              print('DOM_DIAGNOSTIC=' + json.dumps(page.evaluate("({body:document.body ? document.body.innerText : '', scripts:Array.from(document.scripts).map(function(s){return {src:s.src, inline:s.textContent.slice(0,1000)}}), rakutenDone:window.__RAKUTEN_DONE, rakutenResult:window.__RAKUTEN_RESULT})"), ensure_ascii=False)[:12000])
               try:
                   page.wait_for_function('window.__RAKUTEN_DONE === true', timeout=30000)
               except Exception as e:
