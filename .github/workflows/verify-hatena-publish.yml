@@ -58,7 +58,6 @@ jobs:
           PY
           test -s hatena_post_url.txt
           echo 'HATENA_PUBLISH_VERIFIED=success'
-          echo 'HATENA_POST_URL_FILE_CREATED=true'
       - name: 投稿URLを成果物として保存
         uses: actions/upload-artifact@v4
         with:
