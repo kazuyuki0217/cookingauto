@@ -33,7 +33,7 @@ def _parse_jsonp(text):
     return json.loads(payload)
 
 
-def _make_data_from_parsed(parsed):
+def _make_data_from_parsed(parsed, diagnostics=None):
     if not isinstance(parsed, dict):
         return None
     if parsed.get("error"):
@@ -42,12 +42,15 @@ def _make_data_from_parsed(parsed):
             "error": parsed.get("error_description") or parsed.get("error"),
         }
     raw_items = parsed.get("Items") or parsed.get("items") or []
-    return {
+    result = {
         "success": True,
         "count": len(raw_items) if isinstance(raw_items, list) else 0,
         "items": raw_items,
         "orb_fallback": True,
     }
+    if diagnostics is not None:
+        result["rakuten_diagnostics"] = diagnostics
+    return result
 
 
 def _search_once(keyword, hits):
@@ -141,7 +144,7 @@ def _search_once(keyword, hits):
                 data = page.evaluate("window.__RAKUTEN_RESULT")
             except Exception as exc:
                 parsed = diagnostics.get("rakuten_parsed")
-                data = _make_data_from_parsed(parsed)
+                data = _make_data_from_parsed(parsed, diagnostics)
                 if data is None:
                     result = page.evaluate("window.__RAKUTEN_RESULT")
                     body_text = page.locator("body").inner_text(timeout=5000)[:1000]
@@ -222,7 +225,7 @@ def search_rakuten_browser(keyword, hits=10, access_key=None):
                 return items
             diagnostics.append(search_keyword + ": HTTP/JSON取得は完了したが商品0件")
         except Exception as exc:
-            diagnostics.append(search_keyword + ": " + str(exc)[:1500])
+            diagnostics.append(search_keyword + ": " + str(exc)[:3000])
 
     raise RuntimeError(
         "楽天商品が見つかりません。試行検索語: " + " / ".join(keywords)
