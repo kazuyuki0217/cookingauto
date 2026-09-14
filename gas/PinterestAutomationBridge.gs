@@ -3,9 +3,7 @@
  *
  * GitHub Actionsから5件のPinデータを受け取り、
  * Code.gsに保存されているPinterest OAuthトークンを利用して投稿する。
- *
  * 楽天商品検索も同じ認証済みブリッジ経由で実行する。
- * 楽天アクセスキーはGitHubへ固定保存しない。
  *
  * セキュリティ:
  * - PINTEREST_AUTOMATION_SECRETはScript Propertiesに保存
@@ -55,17 +53,45 @@ function KAZU_PINTEREST_EXISTING_PIN_KEYS_() {
 }
 
 /**
- * GitHub Actionsからの楽天アクセスキー取得用GET入口。
+ * 楽天ブラウザ検索ページ。
  *
- * Apps Script ContentServiceのPOSTレスポンスは302で一時URLへ
- * リダイレクトされるため、キー取得だけはGETに統一する。
- * secretはScript Propertiesと照合し、キー自体はログへ出さない。
+ * GitHub ActionsのChromiumからこのページを開き、
+ * GAS Webアプリのブラウザ実行環境から楽天APIのJSONPを呼ぶ。
+ * UrlFetchAppで楽天APIへ直接アクセスしないため、
+ * Webアプリケーション方式のHTTP Referer制限を回避する。
+ */
+function KAZU_RAKUTEN_BROWSER_PAGE_(keyword, hits) {
+  var template = HtmlService.createTemplateFromFile('RakutenBrowserBridge');
+  template.configJson = JSON.stringify({
+    applicationId: KAZU_RAKUTEN_APP_ID_(),
+    accessKey: KAZU_RAKUTEN_KEY_(),
+    affiliateId: KAZU_RAKUTEN_AFFILIATE_ID_(),
+    keyword: String(keyword || '').trim() || 'フライパン',
+    hits: Math.max(1, Math.min(Number(hits || 10), 30))
+  });
+  return template.evaluate()
+    .setTitle('楽天商品検索')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/**
+ * GET入口。
+ * rakuten_browserはブラウザで楽天JSONPを実行するためのHTMLを返す。
+ * rakuten_keyは既存互換のため残す。
  */
 function doGet(e) {
   try {
     var params = e && e.parameter ? e.parameter : {};
     var service = String(params.service || '').trim();
     var secret = String(params.secret || '').trim();
+
+    if (service === 'rakuten_browser') {
+      var expectedBrowser = KAZU_PINTEREST_AUTOMATION_SECRET_();
+      if (!secret || secret !== expectedBrowser) {
+        return KAZU_PINTEREST_AUTOMATION_JSON_(false, {error: '認証に失敗しました。'});
+      }
+      return KAZU_RAKUTEN_BROWSER_PAGE_(params.keyword, params.hits);
+    }
 
     if (service === 'rakuten_key') {
       var expected = KAZU_PINTEREST_AUTOMATION_SECRET_();
@@ -108,9 +134,6 @@ function doPost(e) {
       return KAZU_PINTEREST_AUTOMATION_JSON_(false, {error:'認証に失敗しました。'});
     }
 
-    // GitHub Actionsへ楽天アクセスキーを固定保存させず、
-    // 既存のGAS Script Propertiesから必要時だけ取得する。
-    // GitHub側ではこの値をログ出力・ファイル保存しない。
     if (body.service === 'rakuten_key') {
       var rakutenKey = KAZU_RAKUTEN_KEY_();
       return KAZU_PINTEREST_AUTOMATION_JSON_(true, {
@@ -130,7 +153,6 @@ function doPost(e) {
       });
     }
 
-    // 同じ記事をActionsから再実行しても、同じtitle + linkのPinを二重投稿しない。
     var existing = KAZU_PINTEREST_EXISTING_PIN_KEYS_();
     var results = [];
 
