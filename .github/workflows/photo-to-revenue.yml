@@ -7,13 +7,6 @@ on:
         description: '画像ファイル名（images/内）。空欄なら最新の画像を使用'
         required: false
         type: string
-  push:
-    paths:
-      - 'images/**'
-      - 'rakuten_browser_search.py'
-      - 'article_affiliate_builder.py'
-      - '.github/workflows/photo-to-revenue.yml'
-      - 'gas/**'
 
 permissions:
   contents: read
