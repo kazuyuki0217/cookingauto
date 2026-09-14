@@ -1,4 +1,4 @@
-# Hatena実ページの実通信をCDP Network層で取得し、Chromium ORBだけを回避
+# Playwrightのpage.goto(referer=Hatena)で楽天APIをトップレベル取得しORBを回避
 name: 楽天ブラウザブリッジ実接続診断
 on:
   push:
@@ -19,68 +19,42 @@ jobs:
           python -m pip install playwright
           python -m playwright install --with-deps chromium
           cat > /tmp/diag.py <<'PY'
-          import json, os, time
+          import json, os
+          from urllib.parse import urlencode
           from playwright.sync_api import sync_playwright
 
           hatena = os.environ['HATENA_URL']
           access_key = os.environ['RAKUTEN_ACCESS_KEY']
-          keyword = 'フライパン'
-          api_base = 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'
-          app_id = '5db6e350-5a71-4843-8dcf-894bef88df'
-          affiliate_id = '56e8483c.b8c4995b.56e8483d.205a3086'
+          api = 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'
+          params = {
+              'applicationId':'5db6e350-5a71-4843-8dcf-894bef88df',
+              'accessKey':access_key,
+              'affiliateId':'56e8483c.b8c4995b.56e8483d.205a3086',
+              'keyword':'フライパン',
+              'hits':'3','page':'1','format':'json','formatVersion':'2'
+          }
+          api_url = api + '?' + urlencode(params)
 
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
               context = browser.new_context()
               page = context.new_page()
-              cdp = context.new_cdp_session(page)
-              cdp.send('Network.enable')
-              responses = {}
+              print('=== TEST TOP_LEVEL_NAVIGATION_WITH_HATENA_REFERER ===')
+              response = page.goto(api_url, referer=hatena, wait_until='domcontentloaded', timeout=60000)
+              status = response.status if response else None
+              body = response.text() if response else ''
+              print('RAKUTEN_RESPONSE=' + json.dumps({'http':status,'url':page.url,'content_type':response.headers.get('content-type') if response else None,'body_head':body[:5000]}, ensure_ascii=False))
+              page.close(); context.close(); browser.close()
 
-              def on_response(params):
-                  r = params.get('response', {})
-                  url = r.get('url','')
-                  if 'openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/' in url:
-                      responses[params['requestId']] = {'status':r.get('status'),'mime':r.get('mimeType'),'url':url}
-                      print('CDP_RESPONSE=' + json.dumps(responses[params['requestId']], ensure_ascii=False))
-              cdp.on('Network.responseReceived', on_response)
-
-              page.goto(hatena, wait_until='domcontentloaded', timeout=60000)
-              result = page.evaluate("""({accessKey, keyword, apiBase, appId, affiliateId}) => new Promise(resolve => {
-                const cb='rakutenCdp_'+Date.now();
-                window[cb]=data=>resolve({kind:'callback',data});
-                const p=new URLSearchParams({applicationId:appId,accessKey,affiliateId,keyword,hits:'3',page:'1',format:'json',formatVersion:'2',callback:cb});
-                const s=document.createElement('script');
-                s.src=apiBase+'?'+p.toString();
-                s.onerror=()=>resolve({kind:'error'});
-                document.head.appendChild(s);
-                setTimeout(()=>resolve({kind:'timeout'}),20000);
-              })""", {'accessKey':access_key,'keyword':keyword,'apiBase':api_base,'appId':app_id,'affiliateId':affiliate_id})
-              print('BROWSER_CALLBACK_RESULT=' + json.dumps(result, ensure_ascii=False)[:5000])
-
-              body_result = None
-              for request_id, meta in list(responses.items()):
-                  try:
-                      body_result = cdp.send('Network.getResponseBody', {'requestId':request_id})
-                      print('CDP_BODY=' + json.dumps({'base64Encoded':body_result.get('base64Encoded'), 'body_head':body_result.get('body','')[:5000]}, ensure_ascii=False))
-                      break
-                  except Exception as e:
-                      print('CDP_BODY_ERROR=' + str(e)[:1000])
-
-              page.close()
-              context.close()
-              browser.close()
-
-              if not body_result:
-                  raise RuntimeError('CDPで楽天APIレスポンス本文を取得できませんでした')
-              text = body_result.get('body','')
+              if status != 200:
+                  raise RuntimeError('楽天API HTTPエラー: ' + str(status) + ' ' + body[:2000])
               try:
-                  data = json.loads(text)
+                  data = json.loads(body)
               except Exception:
-                  raise RuntimeError('楽天API本文をJSONとして解析できませんでした: ' + text[:2000])
+                  raise RuntimeError('楽天API本文をJSON解析できませんでした: ' + body[:2000])
               items = data.get('items') or data.get('Items') or []
               if not items:
-                  raise RuntimeError('楽天APIは応答したが商品0件: ' + json.dumps(data, ensure_ascii=False)[:5000])
+                  raise RuntimeError('楽天APIは200だが商品0件: ' + json.dumps(data, ensure_ascii=False)[:5000])
               print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps({'http':'200','product_count':len(items),'first_product':items[0]}, ensure_ascii=False)[:5000])
           PY
           python /tmp/diag.py
