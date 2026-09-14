@@ -31,8 +31,57 @@ def _search_once(keyword, hits):
         browser = p.chromium.launch(headless=True)
         try:
             page = browser.new_page()
+            diagnostics = {
+                "rakuten_status": None,
+                "rakuten_url": "",
+                "console": [],
+                "page_errors": [],
+                "request_failed": [],
+            }
+
+            def on_response(response):
+                if "openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/" in response.url:
+                    diagnostics["rakuten_status"] = response.status
+                    diagnostics["rakuten_url"] = response.url.split("accessKey=")[0] + "accessKey=[hidden]"
+
+            def on_console(message):
+                if len(diagnostics["console"]) < 10:
+                    diagnostics["console"].append(message.text[:500])
+
+            def on_page_error(error):
+                if len(diagnostics["page_errors"]) < 10:
+                    diagnostics["page_errors"].append(str(error)[:500])
+
+            def on_request_failed(request):
+                if "openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/" in request.url:
+                    diagnostics["request_failed"].append(
+                        (request.failure or "unknown failure")[:500]
+                    )
+
+            page.on("response", on_response)
+            page.on("console", on_console)
+            page.on("pageerror", on_page_error)
+            page.on("requestfailed", on_request_failed)
+
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_function("window.__RAKUTEN_DONE === true", timeout=30000)
+            try:
+                page.wait_for_function("window.__RAKUTEN_DONE === true", timeout=30000)
+            except Exception as exc:
+                result = page.evaluate("window.__RAKUTEN_RESULT")
+                body_text = page.locator("body").inner_text(timeout=5000)[:1000]
+                status = diagnostics.get("rakuten_status")
+                detail = {
+                    "status": status,
+                    "result": result,
+                    "body": body_text,
+                    "console": diagnostics["console"],
+                    "page_errors": diagnostics["page_errors"],
+                    "request_failed": diagnostics["request_failed"],
+                }
+                raise RuntimeError(
+                    "楽天ブラウザ検索が完了しませんでした。診断: " + str(detail)
+                ) from exc
+
             data = page.evaluate("window.__RAKUTEN_RESULT")
         finally:
             browser.close()
@@ -55,8 +104,6 @@ def search_rakuten_browser(keyword, hits=10, access_key=None):
 
     GitHub Actionsから楽天APIへ直接アクセスせず、GAS Webアプリの
     ブラウザページをChromiumで開き、そのページから楽天JSONPを実行する。
-    これにより楽天のWebアプリケーション方式を維持したまま、
-    UrlFetchApp由来のHTTP Referer制限を避ける。
     access_key引数は既存呼び出しとの互換性のためだけに受け取る。
     """
     keyword = str(keyword or "").strip() or "フライパン"
