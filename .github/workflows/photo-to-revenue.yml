@@ -13,6 +13,7 @@ on:
       - 'rakuten_browser_search.py'
       - 'article_affiliate_builder.py'
       - '.github/workflows/photo-to-revenue.yml'
+      - 'gas/**'
 
 permissions:
   contents: read
@@ -67,52 +68,12 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python generate_article.py
 
-      - name: 楽天GASブリッジ疎通確認
-        env:
-          RAKUTEN_GAS_URL: ${{ secrets.PINTEREST_GAS_URL }}
-          RAKUTEN_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
-        run: |
-          python - <<'PY'
-          import os
-          import requests
-          from urllib.parse import urlencode
-
-          url = os.environ['RAKUTEN_GAS_URL'].strip()
-          secret = os.environ['RAKUTEN_AUTOMATION_SECRET'].strip()
-          if not url:
-              raise RuntimeError('PINTEREST_GAS_URLが空です。')
-          if not secret:
-              raise RuntimeError('PINTEREST_AUTOMATION_SECRETが空です。')
-
-          # Apps Script ContentServiceのPOST→302経路を使わず、
-          # GETのWebアプリ入口で楽天アクセスキーを取得する。
-          # secretはURLへ付与するが、URL自体はログへ出力しない。
-          params = urlencode({'service': 'rakuten_key', 'secret': secret})
-          r = requests.get(
-              url + ('&' if '?' in url else '?') + params,
-              timeout=30,
-              allow_redirects=True,
-          )
-          print('楽天GASブリッジ最終HTTP:', r.status_code)
-          print('楽天GASブリッジ最終URL:', r.url.split('?')[0])
-          if r.status_code < 200 or r.status_code >= 300:
-              raise RuntimeError(f'楽天GASブリッジ疎通失敗 HTTP {r.status_code}: {r.text[:500]}')
-          try:
-              data = r.json()
-          except ValueError as exc:
-              raise RuntimeError('楽天GASブリッジJSON解析失敗: ' + r.text[:500]) from exc
-          if not data.get('success') or not data.get('accessKey'):
-              raise RuntimeError('楽天アクセスキー取得失敗: ' + str(data.get('error', data)))
-          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as f:
-              f.write('RAKUTEN_ACCESS_KEY=' + str(data['accessKey']).strip() + '\n')
-          print('楽天GASブリッジ疎通確認: 成功（アクセスキーは次工程へ安全に引き渡します）')
-          PY
-
       - name: 楽天アフィリエイト商品を組み込む
         env:
           RAKUTEN_PAGES_URL: https://tansinfuninkazu.hatenablog.com/
-          RAKUTEN_GAS_URL: ${{ secrets.PINTEREST_GAS_URL }}
-          RAKUTEN_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
+          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVwbfrkcqZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
+          PINTEREST_GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVwbfrkcqZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
+          PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
         run: python article_affiliate_builder.py
 
       - name: はてなブログへ完成記事を投稿
@@ -136,7 +97,7 @@ jobs:
 
       - name: Pinterestへ5件を自動投稿
         env:
-          PINTEREST_GAS_URL: ${{ secrets.PINTEREST_GAS_URL }}
+          PINTEREST_GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVwbfrkcqZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
           PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
         run: python publish_pinterest_via_gas.py
 
