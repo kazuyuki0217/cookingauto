@@ -18,7 +18,7 @@ jobs:
           pip install playwright
           playwright install --with-deps chromium
 
-      - name: 楽天API実ブラウザJSONP接続
+      - name: 楽天API実ブラウザJSONP接続診断
         env:
           RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
         run: |
@@ -30,10 +30,8 @@ jobs:
           if not key:
               raise RuntimeError('RAKUTEN_ACCESS_KEY がGitHub Secretsにありません')
 
-          # GitHub Pages上の実ページからJSONPを発生させる。
-          # Python requestsでRefererを偽装する方式ではなく、Chromium自身の
-          # scriptリクエストとして楽天APIへ送ることで、実ブラウザのRefererを使う。
           page_url = 'https://kazuyuki0217.github.io/cookingauto/rakuten-test/?mode=automation&keyword=%E3%83%95%E3%83%A9%E3%82%A4%E3%83%91%E3%83%B3'
+          api_prefix = 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/'
 
           print('楽天API診断: GitHub Pagesの実ブラウザページを起動します')
           print('ページ:', page_url)
@@ -44,8 +42,39 @@ jobs:
               context.add_init_script(f"window.__RAKUTEN_AUTOMATION_KEY = {key!r}; window.__RAKUTEN_AUTOMATION_HITS = 3;")
               page = context.new_page()
 
-              page.on('request', lambda req: print('楽天API request:', req.url) if 'openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search' in req.url else None)
-              page.on('response', lambda res: print('楽天API response HTTP:', res.status, res.url) if 'openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search' in res.url else None)
+              api_state = {'seen': False, 'status': None, 'url': None, 'referer': None, 'body': None, 'failure': None}
+
+              def on_request(req):
+                  if api_prefix in req.url:
+                      api_state['seen'] = True
+                      api_state['url'] = req.url.replace(key, '***')
+                      try:
+                          headers = req.all_headers()
+                          api_state['referer'] = headers.get('referer', '')
+                      except Exception:
+                          pass
+                      print('楽天API request:', api_state['url'])
+                      print('楽天API Referer:', api_state['referer'] or '(取得できず)')
+
+              def on_response(res):
+                  if api_prefix in res.url:
+                      api_state['status'] = res.status
+                      print('楽天API response HTTP:', res.status, res.url.replace(key, '***'))
+                      try:
+                          text = res.text()
+                          api_state['body'] = text[:1200]
+                          print('楽天API response body先頭:', text[:1200])
+                      except Exception as e:
+                          print('楽天API response body取得失敗:', e)
+
+              def on_request_failed(req):
+                  if api_prefix in req.url:
+                      api_state['failure'] = req.failure
+                      print('楽天API request failed:', req.failure)
+
+              page.on('request', on_request)
+              page.on('response', on_response)
+              page.on('requestfailed', on_request_failed)
 
               page.goto(page_url, wait_until='domcontentloaded', timeout=30000)
               page.wait_for_function('window.__RAKUTEN_DONE === true', timeout=30000)
@@ -53,9 +82,11 @@ jobs:
               result = page.evaluate('window.__RAKUTEN_RESULT')
               message = page.locator('#result').inner_text()
               print('楽天API画面結果:', message)
+              print('楽天API観測HTTPステータス:', api_state['status'])
+              print('楽天API観測request failure:', api_state['failure'])
 
               if not result:
-                  raise RuntimeError('楽天APIからデータを取得できませんでした')
+                  raise RuntimeError('楽天APIからデータを取得できませんでした。上記のHTTPステータス、response body、Refererを確認してください')
               if result.get('error'):
                   raise RuntimeError('楽天APIエラー: ' + str(result.get('error')))
 
