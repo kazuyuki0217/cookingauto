@@ -1,4 +1,4 @@
-# Rakuten API browser-origin diagnostic: anchor click from Hatena-origin browser
+# Rakuten API browser-origin diagnostic: anchor click with explicit Origin
 name: 楽天ブラウザブリッジ実接続診断
 on:
   push:
@@ -71,6 +71,7 @@ jobs:
               page.on('response', on_response)
               page.on('requestfailed', on_failed)
               page.goto(hatena, wait_until='domcontentloaded', timeout=60000)
+              page.set_extra_http_headers({'Origin': hatena.rstrip('/'), 'Referer': hatena})
               page.evaluate("""(url) => {
                 const a = document.createElement('a');
                 a.id = 'rakuten-diagnostic-anchor';
@@ -83,7 +84,7 @@ jobs:
                 a.click();
               }""", api_url)
               page.wait_for_timeout(10000)
-              print('=== TEST_HATENA_BROWSER_ANCHOR ===')
+              print('=== TEST_HATENA_BROWSER_ANCHOR_ORIGIN ===')
               print('PAGE_URL=' + page.url)
               print('NETWORK_STATUS=' + str(captured.get('status')))
               print('NETWORK_CONTENT_TYPE=' + str(captured.get('content_type')))
@@ -95,7 +96,7 @@ jobs:
           status = captured.get('status')
           body = captured.get('body','')
           if status != 200:
-              raise RuntimeError('楽天API anchor実接続失敗: ' + json.dumps({'http':status,'failure':captured.get('failed'),'request_headers':captured.get('request_headers',{}),'body_head':body[:1000]}, ensure_ascii=False))
+              raise RuntimeError('楽天API anchor+Origin実接続失敗: ' + json.dumps({'http':status,'failure':captured.get('failed'),'request_headers':captured.get('request_headers',{}),'body_head':body[:1000]}, ensure_ascii=False))
           try:
               data = json.loads(body)
           except Exception as e:
