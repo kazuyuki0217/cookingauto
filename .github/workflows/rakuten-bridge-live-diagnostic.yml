@@ -1,4 +1,4 @@
-# Rakuten API direct navigation diagnostic: preserve Hatena Referer without breaking the existing connection
+# Rakuten API browser-origin diagnostic: actual Hatena page -> browser fetch
 name: 楽天ブラウザブリッジ実接続診断
 on:
   push:
@@ -31,31 +31,47 @@ jobs:
 
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
-              context = browser.new_context(extra_http_headers={'Referer': hatena + '/'})
+              context = browser.new_context()
               page = context.new_page()
+              captured = {}
 
-              def keep_referrer(route):
-                  headers = dict(route.request.headers)
-                  headers['referer'] = hatena + '/'
-                  route.continue_(headers=headers)
+              def on_response(response):
+                  if '/IchibaItem/Search/' in response.url:
+                      captured['status'] = response.status
+                      captured['url'] = response.url
+                      captured['content_type'] = response.headers.get('content-type')
+                      try:
+                          captured['body'] = response.body().decode('utf-8', errors='replace')[:10000]
+                      except Exception as e:
+                          captured['body_error'] = str(e)
 
-              page.route('**/IchibaItem/Search/**', keep_referrer)
-              print('=== TEST TOP_LEVEL_NAVIGATION_ROUTE_CONTINUE_REFERER ===')
-              response = page.goto(api_url, wait_until='domcontentloaded', timeout=60000)
-              status = response.status if response else None
-              body = response.text() if response else ''
-              print('RAKUTEN_RESPONSE=' + json.dumps({'http':status,'url':page.url,'content_type':response.headers.get('content-type') if response else None,'body_head':body[:5000]}, ensure_ascii=False))
+              page.on('response', on_response)
+              print('=== TEST_REAL_HATENA_PAGE_BROWSER_FETCH ===')
+              page.goto(hatena, wait_until='domcontentloaded', timeout=60000)
+              result = page.evaluate("""async (url) => {
+                try {
+                  const r = await fetch(url, {method:'GET', credentials:'omit'});
+                  return {ok:r.ok, status:r.status, type:r.type, redirected:r.redirected, url:r.url, text:await r.text()};
+                } catch (e) {
+                  return {fetch_error:String(e)};
+                }
+              }""", api_url)
+              page.wait_for_timeout(3000)
+              print('BROWSER_FETCH_RESULT=' + json.dumps(result, ensure_ascii=False)[:12000])
+              print('RAKUTEN_NETWORK_CAPTURE=' + json.dumps(captured, ensure_ascii=False)[:12000])
               page.close(); context.close(); browser.close()
 
+              body = captured.get('body','')
+              status = captured.get('status')
               if status != 200:
-                  raise RuntimeError('楽天API HTTPエラー: ' + str(status) + ' ' + body[:2000])
+                  raise RuntimeError('楽天APIブラウザ実接続 HTTPエラー: ' + str(status) + ' ' + body[:2000])
               try:
                   data = json.loads(body)
               except Exception:
-                  raise RuntimeError('楽天API本文をJSON解析できませんでした: ' + body[:2000])
+                  raise RuntimeError('楽天APIブラウザ応答をJSON解析できませんでした: ' + body[:2000])
               items = data.get('items') or data.get('Items') or []
               if not items:
                   raise RuntimeError('楽天APIは200だが商品0件: ' + json.dumps(data, ensure_ascii=False)[:5000])
-              print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps({'http':'200','product_count':len(items),'first_product':items[0]}, ensure_ascii=False)[:5000])
+              print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps({'http':'200','product_count':len(items),'first_product_name':items[0].get('itemName') if isinstance(items[0],dict) else None}, ensure_ascii=False))
           PY
           python /tmp/diag.py
