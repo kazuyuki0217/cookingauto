@@ -18,7 +18,7 @@ jobs:
           pip install playwright
           playwright install --with-deps chromium
 
-      - name: 楽天API直接ブラウザ応答診断
+      - name: 楽天API Referer送信状況診断
         env:
           RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
           RAKUTEN_APPLICATION_ID: 5db6e350-5a71-4843-8d29-cf894bef88df
@@ -47,34 +47,43 @@ jobs:
               'formatVersion': 2,
           })
 
-          print('楽天API診断: JSONPを使わず、実ブラウザでAPIレスポンス本体を直接確認します')
+          print('楽天API診断: Refererを明示的に付与し、実ブラウザの送信ヘッダーを確認します')
           print('起点ページ:', page_url)
           print('API URL:', api_url.replace(key, '***'))
 
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
-              context = browser.new_context()
+              context = browser.new_context(extra_http_headers={
+                  'Referer': page_url,
+                  'Origin': 'https://kazuyuki0217.github.io',
+              })
               page = context.new_page()
+
+              observed = {}
+
+              def on_request(request):
+                  if request.url.startswith('https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'):
+                      observed['url'] = request.url
+                      observed['headers'] = request.headers
+                      print('楽天API実送信Referer:', request.headers.get('referer', '(なし)'))
+                      print('楽天API実送信Origin:', request.headers.get('origin', '(なし)'))
+
+              page.on('request', on_request)
               page.goto(page_url, wait_until='domcontentloaded', timeout=30000)
               print('GitHub Pages HTTP:', page.url)
 
-              try:
-                  response = page.goto(api_url, wait_until='domcontentloaded', timeout=30000)
-                  if response:
-                      print('楽天API HTTP:', response.status)
-                      print('楽天API Content-Type:', response.headers.get('content-type', ''))
-                      print('楽天API Location:', response.headers.get('location', ''))
-                      body = response.text()
-                      print('楽天API response body先頭:', body[:3000])
-                  else:
-                      raise RuntimeError('楽天APIへの直接遷移でresponseオブジェクトを取得できませんでした')
-              except Exception as e:
-                  print('楽天API直接遷移エラー:', repr(e))
-                  raise
+              response = page.goto(api_url, wait_until='domcontentloaded', timeout=30000)
+              if not response:
+                  raise RuntimeError('楽天APIへの直接遷移でresponseオブジェクトを取得できませんでした')
+
+              print('楽天API HTTP:', response.status)
+              print('楽天API Content-Type:', response.headers.get('content-type', ''))
+              print('楽天API Location:', response.headers.get('location', ''))
+              body = response.text()
+              print('楽天API response body先頭:', body[:3000])
 
               print('========================================')
-              print('★★ 楽天API直接ブラウザ応答の取得完了 ★★')
-              print('上記HTTPステータスとresponse bodyから原因を確定します')
+              print('★★ 楽天API Referer診断完了 ★★')
               print('========================================')
               browser.close()
           PY
