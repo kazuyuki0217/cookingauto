@@ -1,4 +1,4 @@
-# Rakuten API browser-origin diagnostic: real browser fetch, capture before ORB blocks page access
+# Rakuten API browser-origin diagnostic: browser fetch with explicit Origin + Referer
 name: 楽天ブラウザブリッジ実接続診断
 on:
   push:
@@ -20,10 +20,11 @@ jobs:
           python -m playwright install --with-deps chromium
           cat > /tmp/diag.py <<'PY'
           import json, os, re
-          from urllib.parse import urlencode
+          from urllib.parse import urlencode, urlparse
           from playwright.sync_api import sync_playwright
 
           hatena = os.environ['HATENA_URL']
+          origin = '{uri.scheme}://{uri.netloc}'.format(uri=urlparse(hatena))
           access_key = os.environ['RAKUTEN_ACCESS_KEY']
           api = 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'
           params = {
@@ -62,10 +63,17 @@ jobs:
                       except Exception as e:
                           captured['body_error'] = str(e)
 
+              def route_handler(route):
+                  headers = dict(route.request.headers)
+                  headers['referer'] = hatena
+                  headers['origin'] = origin
+                  route.continue_(headers=headers)
+
               page.on('request', on_request)
               page.on('response', on_response)
+              page.route('https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/**', route_handler)
               page.goto(hatena, wait_until='domcontentloaded', timeout=60000)
-              print('=== TEST_REAL_HATENA_BROWSER_FETCH_CAPTURE ===')
+              print('=== TEST_REAL_HATENA_BROWSER_FETCH_EXPLICIT_ORIGIN_REFERER ===')
 
               result = page.evaluate("""async (url) => {
                 try {
