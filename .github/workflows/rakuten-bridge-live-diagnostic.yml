@@ -1,4 +1,4 @@
-# Rakuten API browser-origin diagnostic: anchor click from GitHub Pages-origin browser
+# Rakuten API browser-origin diagnostic: no-cors fetch from registered GitHub Pages origin
 name: 楽天ブラウザブリッジ実接続診断
 on:
   push:
@@ -23,7 +23,7 @@ jobs:
           from urllib.parse import urlencode
           from playwright.sync_api import sync_playwright
 
-          hatena = os.environ['HATENA_URL']
+          page_url = os.environ['HATENA_URL']
           access_key = os.environ['RAKUTEN_ACCESS_KEY']
           api = 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'
           params = {
@@ -70,22 +70,23 @@ jobs:
               page.on('request', on_request)
               page.on('response', on_response)
               page.on('requestfailed', on_failed)
-              page.goto(hatena, wait_until='domcontentloaded', timeout=60000)
-              page.set_extra_http_headers({'Origin': 'https://kazuyuki0217.github.io', 'Referer': hatena})
+              page.goto(page_url, wait_until='domcontentloaded', timeout=60000)
+              page.set_extra_http_headers({'Origin': 'https://kazuyuki0217.github.io', 'Referer': page_url})
               page.evaluate("""(url) => {
-                const a = document.createElement('a');
-                a.id = 'rakuten-diagnostic-anchor';
-                a.href = url;
-                a.target = '_self';
-                a.textContent = 'rakuten-diagnostic';
-                a.style.position = 'fixed';
-                a.style.left = '-9999px';
-                document.body.appendChild(a);
-                a.click();
+                window.rakutenDiag = {done:false, error:null, status:null, type:null, body:null};
+                fetch(url, {method:'GET', mode:'no-cors', credentials:'omit', cache:'no-store'})
+                  .then(r => {
+                    window.rakutenDiag.status = r.status;
+                    window.rakutenDiag.type = r.type;
+                    return r.text().then(t => { window.rakutenDiag.body = t; window.rakutenDiag.done = true; });
+                  })
+                  .catch(e => { window.rakutenDiag.error = String(e); window.rakutenDiag.done = true; });
               }""", api_url)
               page.wait_for_timeout(10000)
-              print('=== TEST_GITHUB_PAGES_BROWSER_ANCHOR_ORIGIN ===')
+              js_diag = page.evaluate('window.rakutenDiag')
+              print('=== TEST_GITHUB_PAGES_BROWSER_NO_CORS ===')
               print('PAGE_URL=' + page.url)
+              print('JS_DIAG=' + json.dumps(js_diag, ensure_ascii=False))
               print('NETWORK_STATUS=' + str(captured.get('status')))
               print('NETWORK_CONTENT_TYPE=' + str(captured.get('content_type')))
               print('NETWORK_FAILURE=' + str(captured.get('failed')))
@@ -96,7 +97,7 @@ jobs:
           status = captured.get('status')
           body = captured.get('body','')
           if status != 200:
-              raise RuntimeError('楽天API GitHub Pages anchor+Origin実接続失敗: ' + json.dumps({'http':status,'failure':captured.get('failed'),'request_headers':captured.get('request_headers',{}),'body_head':body[:1000]}, ensure_ascii=False))
+              raise RuntimeError('楽天API GitHub Pages no-cors実接続失敗: ' + json.dumps({'http':status,'failure':captured.get('failed'),'request_headers':captured.get('request_headers',{}),'js_diag':js_diag,'body_head':body[:1000]}, ensure_ascii=False))
           try:
               data = json.loads(body)
           except Exception as e:
