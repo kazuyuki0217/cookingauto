@@ -67,6 +67,7 @@ def _search_once(keyword, hits):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(extra_http_headers={"Origin": RAKUTEN_ALLOWED_ORIGIN, "Referer": RAKUTEN_ALLOWED_ORIGIN + "/"})
+        api = p.request.new_context(extra_http_headers={"Origin": RAKUTEN_ALLOWED_ORIGIN, "Referer": RAKUTEN_ALLOWED_ORIGIN + "/"})
         try:
             page = context.new_page()
             diagnostics = {"rakuten_status": None, "rakuten_url": "", "rakuten_body": "", "rakuten_parsed": None, "rakuten_summary": None, "route_fetch_error": "", "console": [], "page_errors": [], "request_failed": []}
@@ -86,12 +87,13 @@ def _search_once(keyword, hits):
                     except Exception as e: diagnostics["rakuten_body"] = "BODY_READ_ERROR: " + str(e)
             def route_handler(route):
                 try:
-                    upstream = route.fetch(timeout=60000)
+                    request_url = route.request.url
+                    upstream = api.get(request_url, timeout=60000, headers={"Origin": RAKUTEN_ALLOWED_ORIGIN, "Referer": RAKUTEN_ALLOWED_ORIGIN + "/"})
                     body = upstream.body()
-                    record(body.decode("utf-8", errors="replace"), upstream.status, route.request.url)
+                    record(body.decode("utf-8", errors="replace"), upstream.status, request_url)
                     route.fulfill(status=upstream.status, body=body, headers={"Content-Type": "application/javascript; charset=utf-8"})
                 except Exception as e:
-                    diagnostics["route_fetch_error"] = str(e)[:1000]
+                    diagnostics["route_fetch_error"] = str(e)[:2000]
                     route.abort()
             page.on("response", capture)
             page.on("requestfailed", lambda r: diagnostics["request_failed"].append(str(r.failure or "unknown failure")[:500]) if RAKUTEN_API_MARKER in r.url else None)
@@ -105,6 +107,7 @@ def _search_once(keyword, hits):
                 if data is None:
                     raise RuntimeError("楽天ブラウザ検索が完了しませんでした。診断: " + json.dumps(diagnostics, ensure_ascii=False)[:8000]) from exc
         finally:
+            api.dispose()
             context.close()
             browser.close()
     if not isinstance(data, dict):
