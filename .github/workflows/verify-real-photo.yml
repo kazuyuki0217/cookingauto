@@ -35,6 +35,7 @@ jobs:
       - name: generate article with Gemini
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          COOKING_IMAGE_FILE: images/pork_miso.jpg
         run: python generate_article.py
       - name: build Rakuten affiliate article
         env:
@@ -51,10 +52,11 @@ jobs:
           test -s article_final.html
           python - <<'PY'
           from pathlib import Path
+          import re
           html=Path('article_final.html').read_text(encoding='utf-8')
           print('DISH=' + Path('dish_name.txt').read_text(encoding='utf-8').strip())
           print('TITLE=' + Path('article_title.txt').read_text(encoding='utf-8').strip())
-          print('AFFILIATE_LINK_COUNT=' + str(html.count('affiliate')))
+          print('RAKUTEN_AFFILIATE_LINK_COUNT=' + str(len(re.findall(r'href=[\"\']https?://hb\.afl\.rakuten\.co\.jp/', html))))
           print('HTML_SIZE=' + str(len(html)))
           PY
       - name: artifact
