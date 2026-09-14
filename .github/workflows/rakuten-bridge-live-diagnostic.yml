@@ -22,48 +22,35 @@ jobs:
           from urllib.parse import urlencode
           from playwright.sync_api import sync_playwright
 
-          RAKUTEN_MARKER = 'openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/'
-          ALLOWED_ORIGIN = 'https://tansinfuninkazu.hatenablog.com'
           gas = os.environ['GAS_URL']
           secret = os.environ['SECRET']
           url = gas + '?' + urlencode({'service':'rakuten_browser','secret':secret,'keyword':'フライパン','hits':'3'})
-
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
               context = browser.new_context(extra_http_headers={
-                  'Origin': ALLOWED_ORIGIN,
-                  'Referer': ALLOWED_ORIGIN + '/',
+                  'Origin': 'https://tansinfuninkazu.hatenablog.com',
+                  'Referer': 'https://tansinfuninkazu.hatenablog.com/'
               })
               page = context.new_page()
               events = {'console':[], 'pageerror':[], 'requestfailed':[], 'responses':[]}
               page.on('console', lambda m: events['console'].append(m.text[:500]))
               page.on('pageerror', lambda e: events['pageerror'].append(str(e)[:1000]))
               page.on('requestfailed', lambda r: events['requestfailed'].append({'url':r.url[:500], 'failure':str(r.failure)[:500]}))
-
-              def capture(response):
-                  if RAKUTEN_MARKER in response.url:
-                      events['responses'].append({'url':response.url[:500], 'status':response.status})
-
+              page.on('response', lambda r: events['responses'].append({'url':r.url[:500], 'status':r.status}) if 'openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/' in r.url else None)
               def route_handler(route):
                   try:
                       upstream = route.fetch(timeout=60000)
                       body = upstream.body()
-                      route.fulfill(
-                          status=upstream.status,
-                          body=body,
-                          headers={'Content-Type':'application/javascript; charset=utf-8'},
-                      )
+                      route.fulfill(status=upstream.status, body=body, headers={'Content-Type':'application/javascript; charset=utf-8'})
                   except Exception as e:
-                      events['requestfailed'].append({'url':route.request.url[:500], 'failure':'ROUTE_FETCH_ERROR: '+str(e)[:500]})
+                      print('ROUTE_FETCH_ERROR=' + str(e)[:1000])
                       route.abort()
-
-              page.on('response', capture)
               page.route('**/IchibaItem/Search/**', route_handler)
               print('=== TEST CURRENT_GAS_DEPLOYMENT_URL ===')
               response = page.goto(url, wait_until='domcontentloaded', timeout=60000)
               print(json.dumps({'status': response.status if response else None, 'url': page.url, 'title': page.title()}, ensure_ascii=False))
               try:
-                  page.wait_for_function('window.__RAKUTEN_DONE === true', timeout=25000)
+                  page.wait_for_function('window.__RAKUTEN_DONE === true', timeout=30000)
               except Exception as e:
                   print('WAIT_ERROR=' + str(e)[:500])
               print('RESULT=' + json.dumps(page.evaluate('window.__RAKUTEN_RESULT'), ensure_ascii=False)[:5000])
