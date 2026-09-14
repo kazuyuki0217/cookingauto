@@ -1,4 +1,4 @@
-# Playwrightのpage.goto(referer=Hatena)で楽天APIをトップレベル取得しORBを回避
+# Top-level API navigation + route.continueでHatena Refererを実際のHTTPリクエストへ付与
 name: 楽天ブラウザブリッジ実接続診断
 on:
   push:
@@ -26,21 +26,22 @@ jobs:
           hatena = os.environ['HATENA_URL']
           access_key = os.environ['RAKUTEN_ACCESS_KEY']
           api = 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'
-          params = {
-              'applicationId':'5db6e350-5a71-4843-8dcf-894bef88df',
-              'accessKey':access_key,
-              'affiliateId':'56e8483c.b8c4995b.56e8483d.205a3086',
-              'keyword':'フライパン',
-              'hits':'3','page':'1','format':'json','formatVersion':'2'
-          }
+          params = {'applicationId':'5db6e350-5a71-4843-8dcf-894bef88df','accessKey':access_key,'affiliateId':'56e8483c.b8c4995b.56e8483d.205a3086','keyword':'フライパン','hits':'3','page':'1','format':'json','formatVersion':'2'}
           api_url = api + '?' + urlencode(params)
 
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
               context = browser.new_context()
               page = context.new_page()
-              print('=== TEST TOP_LEVEL_NAVIGATION_WITH_HATENA_REFERER ===')
-              response = page.goto(api_url, referer=hatena, wait_until='domcontentloaded', timeout=60000)
+
+              def keep_referrer(route):
+                  headers = dict(route.request.headers)
+                  headers['referer'] = hatena
+                  route.continue_(headers=headers)
+
+              page.route('**/IchibaItem/Search/**', keep_referrer)
+              print('=== TEST TOP_LEVEL_NAVIGATION_ROUTE_CONTINUE_REFERER ===')
+              response = page.goto(api_url, wait_until='domcontentloaded', timeout=60000)
               status = response.status if response else None
               body = response.text() if response else ''
               print('RAKUTEN_RESPONSE=' + json.dumps({'http':status,'url':page.url,'content_type':response.headers.get('content-type') if response else None,'body_head':body[:5000]}, ensure_ascii=False))
