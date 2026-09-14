@@ -53,3 +53,4 @@ jobs:
         with:
           name: zero-point-affiliate-stage
           path: article_final.html
+# zero-point-stage-trigger
