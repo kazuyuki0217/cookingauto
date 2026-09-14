@@ -86,7 +86,13 @@ def _search_once(keyword, hits):
                     except Exception as e: diagnostics["rakuten_body"] = "BODY_READ_ERROR: " + str(e)
             def route_handler(route):
                 try:
-                    upstream = route.fetch(timeout=60000)
+                    upstream = route.fetch(
+                        timeout=60000,
+                        headers={
+                            "Origin": RAKUTEN_ALLOWED_ORIGIN,
+                            "Referer": RAKUTEN_ALLOWED_ORIGIN + "/",
+                        },
+                    )
                     body = upstream.body()
                     record(body.decode("utf-8", errors="replace"), upstream.status, route.request.url)
                     route.fulfill(status=upstream.status, body=body, headers={"Content-Type": "application/javascript; charset=utf-8"})
