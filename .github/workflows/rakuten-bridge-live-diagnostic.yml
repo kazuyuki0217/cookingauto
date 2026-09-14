@@ -10,7 +10,7 @@ jobs:
   diagnostic:
     runs-on: ubuntu-latest
     steps:
-      - name: 楽天公式プロキシの正規applicationId条件を再現
+      - name: 楽天公式テストフォームと同一URL条件で検索確認
         env:
           RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
         run: |
@@ -26,37 +26,42 @@ jobs:
           access_key = os.environ['RAKUTEN_ACCESS_KEY']
           api = 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'
           proxy = 'https://webservice.rakuten.co.jp/explorer/proxy'
+
+          # This matches the live official test form's target URL shape.
           target_params = {
-              'format':'json','formatVersion':'2','keyword':'フライパン',
-              'applicationId':user_app_id,'accessKey':access_key,
-              'affiliateId':'56e8483c.b8c4995b.56e8483d.205a3086',
-              'hits':'3','page':'1','sort':'-reviewCount','orFlag':'1','availability':'1','imageFlag':'1'
+              'format':'json',
+              'keyword':'フライパン',
+              'genreId':'0',
+              'applicationId':user_app_id,
+              'accessKey':access_key
           }
           target_url = api + '?' + urlencode(target_params)
           proxy_params = {'applicationId':explorer_app_id,'accessKey':access_key,'url':target_url}
           headers = {'X-Requested-With':'XMLHttpRequest','Accept':'application/json, text/javascript, */*; q=0.01'}
           r = requests.get(proxy, params=proxy_params, headers=headers, timeout=30)
-          print('=== RAKUTEN_OFFICIAL_PROXY_EXACT_REPLAY ===')
+          print('=== RAKUTEN_OFFICIAL_PROXY_EXACT_FORM_URL ===')
           print('HTTP=' + str(r.status_code))
           print('CONTENT_TYPE=' + str(r.headers.get('content-type')))
-          text = r.text
+          text=r.text
           print('BODY_HEAD=' + text[:5000])
           if r.status_code != 200:
-              raise RuntimeError('公式プロキシHTTP失敗: ' + str(r.status_code))
-          outer = r.json()
-          inner_text = outer.get('content','') if isinstance(outer,dict) else ''
-          inner = json.loads(inner_text) if inner_text else {}
+              raise RuntimeError('公式プロキシHTTP失敗: '+str(r.status_code))
+          outer=r.json(); inner_text=outer.get('content','') if isinstance(outer,dict) else ''
+          inner=json.loads(inner_text) if inner_text else {}
           if inner.get('errors'):
-              raise RuntimeError('楽天APIエラー: ' + json.dumps(inner.get('errors'), ensure_ascii=False))
-          items = inner.get('Items') or inner.get('items') or []
+              raise RuntimeError('楽天APIエラー: '+json.dumps(inner.get('errors'),ensure_ascii=False))
+          items=inner.get('Items') or inner.get('items') or []
           normalized=[]
           for x in items[:3]:
-              item = x.get('Item') if isinstance(x,dict) and isinstance(x.get('Item'),dict) else x
+              item=x.get('Item') if isinstance(x,dict) and isinstance(x.get('Item'),dict) else x
               if isinstance(item,dict):
                   normalized.append({'name':item.get('itemName'),'price':item.get('itemPrice'),'itemUrl':item.get('itemUrl'),'affiliateUrl':item.get('affiliateUrl')})
-          print('NORMALIZED=' + json.dumps({'count':inner.get('count'),'items':normalized}, ensure_ascii=False))
+          print('NORMALIZED='+json.dumps({'count':inner.get('count'),'items':normalized},ensure_ascii=False))
           if not normalized:
               raise RuntimeError('公式プロキシHTTP 200だが商品0件')
-          print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps({'http':r.status_code,'count':inner.get('count'),'first_product':normalized[0]}, ensure_ascii=False))
+          names=' '.join((x.get('name') or '') for x in normalized)
+          if 'フライパン' not in names:
+              raise RuntimeError('HTTP 200だがフライパン商品が返っていない')
+          print('RAKUTEN_CONNECTION_VERIFIED='+json.dumps({'http':r.status_code,'count':inner.get('count'),'first_product':normalized[0]},ensure_ascii=False))
           PY
           python /tmp/diag.py
