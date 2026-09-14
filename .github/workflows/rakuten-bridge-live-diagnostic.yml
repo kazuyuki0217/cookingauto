@@ -25,12 +25,10 @@ jobs:
           gas = os.environ['GAS_URL']
           secret = os.environ['SECRET']
           url = gas + '?' + urlencode({'service':'rakuten_browser','secret':secret,'keyword':'フライパン','hits':'3'})
+          allowed_origin = 'https://tansinfuninkazu.hatenablog.com'
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
-              context = browser.new_context(extra_http_headers={
-                  'Origin': 'https://tansinfuninkazu.hatenablog.com',
-                  'Referer': 'https://tansinfuninkazu.hatenablog.com/'
-              })
+              context = browser.new_context(extra_http_headers={'Origin': allowed_origin, 'Referer': allowed_origin + '/'})
               page = context.new_page()
               events = {'console':[], 'pageerror':[], 'requestfailed':[], 'responses':[]}
               page.on('console', lambda m: events['console'].append(m.text[:500]))
@@ -39,8 +37,9 @@ jobs:
               page.on('response', lambda r: events['responses'].append({'url':r.url[:500], 'status':r.status}) if 'openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/' in r.url else None)
               def route_handler(route):
                   try:
-                      upstream = route.fetch(timeout=60000)
+                      upstream = route.fetch(timeout=60000, headers={'Origin': allowed_origin, 'Referer': allowed_origin + '/'})
                       body = upstream.body()
+                      print('RAKUTEN_UPSTREAM=' + json.dumps({'status': upstream.status, 'content_type': upstream.headers.get('content-type'), 'body_head': body.decode('utf-8', errors='replace')[:3000]}, ensure_ascii=False))
                       route.fulfill(status=upstream.status, body=body, headers={'Content-Type':'application/javascript; charset=utf-8'})
                   except Exception as e:
                       print('ROUTE_FETCH_ERROR=' + str(e)[:1000])
