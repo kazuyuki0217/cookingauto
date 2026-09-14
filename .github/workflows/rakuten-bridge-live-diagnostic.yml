@@ -13,7 +13,7 @@ jobs:
         env:
           GAS_URL: ${{ secrets.PINTEREST_GAS_URL }}
           SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
-          KNOWN_GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2F6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
+          KNOWN_GAS_URL: https://script.google.com/macros/s/AKfycbyw5WwonV2F6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
         run: |
           set -e
           python -m pip install playwright
