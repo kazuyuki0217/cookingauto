@@ -10,7 +10,7 @@ jobs:
   diagnostic:
     runs-on: ubuntu-latest
     steps:
-      - name: 楽天公式テストフォームと同一URL条件で検索確認
+      - name: 楽天公式プロキシでフライパン＋アフィリエイトURLを確認
         env:
           RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
         run: |
@@ -21,33 +21,26 @@ jobs:
           from urllib.parse import urlencode
           import requests
 
-          user_app_id = '5db6e350-5a71-4843-8dcf-894bef88df'
-          explorer_app_id = 'ec65ace1-9e87-4d23-83e4-b54103335b56'
-          access_key = os.environ['RAKUTEN_ACCESS_KEY']
-          api = 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'
-          proxy = 'https://webservice.rakuten.co.jp/explorer/proxy'
-
-          # This matches the live official test form's target URL shape.
-          target_params = {
-              'format':'json',
-              'keyword':'フライパン',
-              'genreId':'0',
-              'applicationId':user_app_id,
-              'accessKey':access_key
+          user_app_id='5db6e350-5a71-4843-8dcf-894bef88df'
+          explorer_app_id='ec65ace1-9e87-4d23-83e4-b54103335b56'
+          access_key=os.environ['RAKUTEN_ACCESS_KEY']
+          api='https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'
+          proxy='https://webservice.rakuten.co.jp/explorer/proxy'
+          target_params={
+              'format':'json','keyword':'フライパン','genreId':'0',
+              'applicationId':user_app_id,'accessKey':access_key,
+              'affiliateId':'56e8483c.b8c4995b.56e8483d.205a3086'
           }
-          target_url = api + '?' + urlencode(target_params)
-          proxy_params = {'applicationId':explorer_app_id,'accessKey':access_key,'url':target_url}
-          headers = {'X-Requested-With':'XMLHttpRequest','Accept':'application/json, text/javascript, */*; q=0.01'}
-          r = requests.get(proxy, params=proxy_params, headers=headers, timeout=30)
-          print('=== RAKUTEN_OFFICIAL_PROXY_EXACT_FORM_URL ===')
-          print('HTTP=' + str(r.status_code))
-          print('CONTENT_TYPE=' + str(r.headers.get('content-type')))
-          text=r.text
-          print('BODY_HEAD=' + text[:5000])
-          if r.status_code != 200:
-              raise RuntimeError('公式プロキシHTTP失敗: '+str(r.status_code))
+          target_url=api+'?'+urlencode(target_params)
+          proxy_params={'applicationId':explorer_app_id,'accessKey':access_key,'url':target_url}
+          headers={'X-Requested-With':'XMLHttpRequest','Accept':'application/json, text/javascript, */*; q=0.01'}
+          r=requests.get(proxy,params=proxy_params,headers=headers,timeout=30)
+          print('=== RAKUTEN_OFFICIAL_PROXY_AFFILIATE ===')
+          print('HTTP='+str(r.status_code))
+          print('CONTENT_TYPE='+str(r.headers.get('content-type')))
           outer=r.json(); inner_text=outer.get('content','') if isinstance(outer,dict) else ''
           inner=json.loads(inner_text) if inner_text else {}
+          print('BODY_HEAD='+json.dumps({'count':inner.get('count'),'first':(inner.get('Items') or [{}])[0]},ensure_ascii=False)[:6000])
           if inner.get('errors'):
               raise RuntimeError('楽天APIエラー: '+json.dumps(inner.get('errors'),ensure_ascii=False))
           items=inner.get('Items') or inner.get('items') or []
@@ -57,11 +50,12 @@ jobs:
               if isinstance(item,dict):
                   normalized.append({'name':item.get('itemName'),'price':item.get('itemPrice'),'itemUrl':item.get('itemUrl'),'affiliateUrl':item.get('affiliateUrl')})
           print('NORMALIZED='+json.dumps({'count':inner.get('count'),'items':normalized},ensure_ascii=False))
-          if not normalized:
-              raise RuntimeError('公式プロキシHTTP 200だが商品0件')
-          names=' '.join((x.get('name') or '') for x in normalized)
-          if 'フライパン' not in names:
-              raise RuntimeError('HTTP 200だがフライパン商品が返っていない')
+          if r.status_code != 200 or not normalized:
+              raise RuntimeError('HTTP 200または商品取得に失敗')
+          if 'フライパン' not in ' '.join(x.get('name') or '' for x in normalized):
+              raise RuntimeError('フライパン商品が返っていません')
+          if not normalized[0].get('affiliateUrl'):
+              raise RuntimeError('商品は返ったがaffiliateUrlが空です')
           print('RAKUTEN_CONNECTION_VERIFIED='+json.dumps({'http':r.status_code,'count':inner.get('count'),'first_product':normalized[0]},ensure_ascii=False))
           PY
           python /tmp/diag.py
