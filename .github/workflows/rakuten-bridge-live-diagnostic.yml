@@ -1,4 +1,4 @@
-# Rakuten API browser-origin diagnostic: top-level navigation from actual Hatena page
+# Rakuten API browser-origin diagnostic: explicit navigation referer
 name: 楽天ブラウザブリッジ実接続診断
 on:
   push:
@@ -53,9 +53,9 @@ jobs:
                       request_info['referer'] = request.headers.get('referer')
 
               page.on('request', on_request)
-              print('=== TEST_REAL_HATENA_TO_RAKUTEN_TOP_LEVEL_NAVIGATION ===')
+              print('=== TEST_REAL_HATENA_TO_RAKUTEN_TOP_LEVEL_NAVIGATION_EXPLICIT_REFERER ===')
               page.goto(hatena, wait_until='domcontentloaded', timeout=60000)
-              response = page.goto(api_url, wait_until='domcontentloaded', timeout=60000)
+              response = page.goto(api_url, referer=hatena, wait_until='domcontentloaded', timeout=60000)
 
               status = response.status if response else None
               content_type = response.headers.get('content-type') if response else None
@@ -63,6 +63,7 @@ jobs:
               print('RAKUTEN_HTTP_STATUS=' + str(status))
               print('RAKUTEN_CONTENT_TYPE=' + str(content_type))
               print('RAKUTEN_REFERER_PRESENT=' + str(bool(request_info.get('referer'))))
+              print('RAKUTEN_REFERER_IS_HATENA=' + str(request_info.get('referer') == hatena))
               print('RAKUTEN_BODY_HEAD=' + body[:1500])
 
               page.close(); context.close(); browser.close()
