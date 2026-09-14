@@ -1,4 +1,4 @@
-# GitHub Pages実ブラウザ起点＋route.fetchにRefererだけを明示
+# 登録済みHatenaブログを実ブラウザ起点にして楽天APIの許可判定を実測
 name: 楽天ブラウザブリッジ実接続診断
 on:
   push:
@@ -13,7 +13,7 @@ jobs:
       - name: Playwrightで楽天API実接続を診断
         env:
           GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVwbfrcQZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
-          GITHUB_PAGES_URL: https://kazuyuki0217.github.io/cookingauto/rakuten-test/
+          HATENA_URL: https://tansinfuninkazu.hatenablog.com/
           SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
           RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
         run: |
@@ -22,72 +22,59 @@ jobs:
           python -m playwright install --with-deps chromium
           cat > /tmp/diag.py <<'PY'
           import json, os
-          from urllib.parse import urlencode, urlparse, parse_qsl
+          from urllib.parse import urlencode
           from playwright.sync_api import sync_playwright
 
           gas = os.environ['GAS_URL']
-          pages = os.environ['GITHUB_PAGES_URL']
+          hatena = os.environ['HATENA_URL']
           secret = os.environ['SECRET']
           access_key = os.environ['RAKUTEN_ACCESS_KEY']
           keyword = 'フライパン'
-          api_marker = 'openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/'
+          api_base = 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'
 
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
-              gas_context = browser.new_context(extra_http_headers={'Origin':'https://tansinfuninkazu.hatenablog.com','Referer':'https://tansinfuninkazu.hatenablog.com/'})
+
+              # GAS接続確認
+              gas_context = browser.new_context(extra_http_headers={'Origin':hatena,'Referer':hatena})
               gas_page = gas_context.new_page()
               gas_url = gas + '?' + urlencode({'service':'rakuten_browser','secret':secret,'keyword':keyword,'hits':'3'})
               gas_response = gas_page.goto(gas_url, wait_until='domcontentloaded', timeout=60000)
               print('GAS_CONNECTION=' + json.dumps({'http':gas_response.status if gas_response else None,'title':gas_page.title()}, ensure_ascii=False))
               gas_context.close()
 
+              # 実際の登録済みHatenaページからscriptタグで楽天APIを呼ぶ
               context = browser.new_context()
               page = context.new_page()
-              page.add_init_script('window.__RAKUTEN_AUTOMATION_KEY = ' + json.dumps(access_key) + ';')
               events = {'console':[], 'pageerror':[], 'requestfailed':[], 'responses':[]}
               page.on('console', lambda m: events['console'].append(m.text[:500]))
               page.on('pageerror', lambda e: events['pageerror'].append(str(e)[:1000]))
               page.on('requestfailed', lambda r: events['requestfailed'].append({'url':r.url[:500], 'failure':str(r.failure)[:500]}))
-
-              def route_handler(route):
-                  try:
-                      upstream = route.fetch(timeout=60000, headers={'Referer':pages})
-                      raw = upstream.body()
-                      text = raw.decode('utf-8', errors='replace').lstrip('\ufeff \r\n\t')
-                      qs = dict(parse_qsl(urlparse(route.request.url).query))
-                      print('RAKUTEN_UPSTREAM=' + json.dumps({'status':upstream.status,'content_type':upstream.headers.get('content-type'),'body_head':text[:5000]}, ensure_ascii=False))
-                      body = raw
-                      callback = str(qs.get('callback','')).strip()
-                      if callback:
-                          try:
-                              parsed = json.loads(text)
-                              body = (callback + '(' + json.dumps(parsed, ensure_ascii=False, separators=(',', ':')) + ');').encode('utf-8')
-                              print('RAKUTEN_JSON_TO_JSONP=wrapped')
-                          except json.JSONDecodeError:
-                              print('RAKUTEN_JSON_TO_JSONP=already_jsonp_or_nonjson')
-                      route.fulfill(status=upstream.status, body=body, headers={'Content-Type':'application/javascript; charset=utf-8'})
-                  except Exception as e:
-                      print('ROUTE_FETCH_ERROR=' + str(e)[:2000])
-                      route.abort()
-
-              page.route('**/IchibaItem/Search/**', route_handler)
-              page.on('response', lambda r: events['responses'].append({'url':r.url[:500],'status':r.status,'content_type':r.headers.get('content-type')}) if api_marker in r.url else None)
-
-              print('=== TEST GITHUB_PAGES_ROUTE_REFERER_ONLY ===')
-              response = page.goto(pages + '?' + urlencode({'keyword':keyword,'hits':'3'}), wait_until='domcontentloaded', timeout=60000)
-              print('PAGES_CONNECTION=' + json.dumps({'http':response.status if response else None,'url':page.url,'title':page.title()}, ensure_ascii=False))
-              try:
-                  page.wait_for_function("document.querySelector('#result') && document.querySelector('#result').textContent !== '実行中...'", timeout=30000)
-              except Exception as e:
-                  print('WAIT_ERROR=' + str(e)[:500])
-              result_text = page.locator('#result').inner_text() if page.locator('#result').count() else ''
-              print('PAGES_RESULT=' + result_text[:5000])
+              page.on('response', lambda r: events['responses'].append({'url':r.url[:500],'status':r.status,'content_type':r.headers.get('content-type')}) if api_base in r.url else None)
+              print('=== TEST REAL_HATENA_ORIGIN ===')
+              response = page.goto(hatena, wait_until='domcontentloaded', timeout=60000)
+              print('HATENA_CONNECTION=' + json.dumps({'http':response.status if response else None,'url':page.url,'title':page.title()}, ensure_ascii=False))
+              result = page.evaluate("""({accessKey, keyword, apiBase}) => new Promise(resolve => {
+                const cb='rakutenReal_'+Date.now();
+                window[cb]=data=>resolve({kind:'callback',data});
+                const p=new URLSearchParams({applicationId:'5db6e350-5a71-4843-8d29-cf894bef88df',accessKey,affiliateId:'56e8483c.b8c4995b.56e8483d.205a3086',keyword,hits:'3',page:'1',format:'json',formatVersion:'2',callback:cb});
+                const s=document.createElement('script');
+                s.src=apiBase+'?'+p.toString();
+                s.onerror=()=>resolve({kind:'error'});
+                document.head.appendChild(s);
+                setTimeout(()=>resolve({kind:'timeout'}),20000);
+              })""", {'accessKey':access_key,'keyword':keyword,'apiBase':api_base})
+              print('HATENA_API_RESULT=' + json.dumps(result, ensure_ascii=False)[:8000])
               print('EVENTS=' + json.dumps(events, ensure_ascii=False)[:10000])
               context.close()
               browser.close()
 
-              if '楽天API接続成功' not in result_text:
-                  raise RuntimeError('GitHub Pages経路で楽天API商品取得を確認できませんでした: ' + result_text[:3000])
-              print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps({'http':'200','product_count':'>=1','route':'GitHub Pages -> route.fetch(Referer) -> JSONP'}, ensure_ascii=False))
+              if result.get('kind') != 'callback':
+                  raise RuntimeError('Hatena実ページ起点でも楽天API商品応答を取得できませんでした: ' + json.dumps(result, ensure_ascii=False))
+              data = result.get('data') or {}
+              items = data.get('items') or data.get('Items') or []
+              if not items:
+                  raise RuntimeError('楽天APIは応答したが商品0件: ' + json.dumps(data, ensure_ascii=False)[:5000])
+              print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps({'http':'200','product_count':len(items),'route':'Hatena real page -> Rakuten JSONP'}, ensure_ascii=False))
           PY
           python /tmp/diag.py
