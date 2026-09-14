@@ -1,0 +1,69 @@
+name: verify-real-photo-affiliate
+
+on:
+  push:
+    branches:
+      - verify-affiliate-stage-20260914
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7
+      - name: setup python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: install
+        run: |
+          pip install -r requirements.txt requests playwright
+          python -m playwright install --with-deps chromium
+      - name: prepare photo
+        env:
+          COOKING_IMAGE_FILE: images/pork_miso.jpg
+        run: python upload_cooking_photo.py
+      - name: upload to Hatena Fotolife
+        env:
+          HATENA_ID: ${{ secrets.HATENA_ID }}
+          HATENA_API_KEY: ${{ secrets.HATENA_API_KEY }}
+          HATENA_FOTOLIFE_FOLDER: 料理アフィリエイト自動化
+        run: python hatena_fotolife_upload.py
+      - name: generate article with Gemini
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python generate_article.py
+      - name: build Rakuten affiliate article
+        env:
+          RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
+          RAKUTEN_PAGES_URL: https://tansinfuninkazu.hatenablog.com/
+          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVfrkcqZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
+          PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
+        run: python article_affiliate_builder.py
+      - name: verify outputs
+        run: |
+          test -s dish_name.txt
+          test -s article_title.txt
+          test -s article_body.txt
+          test -s article_final.html
+          python - <<'PY'
+          from pathlib import Path
+          html=Path('article_final.html').read_text(encoding='utf-8')
+          print('DISH=' + Path('dish_name.txt').read_text(encoding='utf-8').strip())
+          print('TITLE=' + Path('article_title.txt').read_text(encoding='utf-8').strip())
+          print('AFFILIATE_LINK_COUNT=' + str(html.count('affiliate')))
+          print('HTML_SIZE=' + str(len(html)))
+          PY
+      - name: artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-photo-affiliate-verification
+          path: |
+            dish_name.txt
+            article_title.txt
+            article_body.txt
+            article_final.html
+            cooking_image_url.txt
