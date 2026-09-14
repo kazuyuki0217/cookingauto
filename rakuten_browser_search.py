@@ -1,21 +1,12 @@
 import json
 import os
-from urllib.parse import quote, urlencode, urlparse
+from urllib.parse import quote, urlencode
 
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+import requests
 
-RAKUTEN_PAGES_URL = os.environ.get("RAKUTEN_PAGES_URL", "https://tansinfuninkazu.hatenablog.com/").strip()
 RAKUTEN_API_URL = "https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701"
 RAKUTEN_APPLICATION_ID = "5db6e350-5a71-4843-8d29-cf894bef88df"
-RAKUTEN_AFFILIATE_ID = "56e8483c.b8c4995b.56a8483d.205a3086"
-
-
-def _safe_url(value):
-    try:
-        parsed = urlparse(value)
-        return parsed.scheme + "://" + parsed.netloc + parsed.path
-    except Exception:
-        return "unknown"
+RAKUTEN_AFFILIATE_ID = "56e8483c.b8c4995b.56e8483d.205a3086"
 
 
 def _rakuten_error(result):
@@ -35,18 +26,18 @@ def _normalize_item(item):
 
 
 def search_rakuten_browser(keyword, hits=10, access_key=None):
+    """楽天API 2026-07-01をバックエンド方式で直接呼び出す。
+
+    関数名は既存パイプライン互換のため維持する。
+    Web applicationのReferer制限を使うブラウザ経由ではなく、
+    API/Backend Service向けのサーバー側HTTPリクエストを使用する。
+    """
     access_key = str(access_key or os.environ.get("RAKUTEN_ACCESS_KEY", "")).strip()
     if not access_key:
         raise RuntimeError("RAKUTEN_ACCESS_KEY is not configured.")
 
     keyword = str(keyword or "").strip() or "フライパン"
     hits = max(1, min(int(hits), 30))
-    diagnostics = {
-        "page": _safe_url(RAKUTEN_PAGES_URL),
-        "keyword": keyword,
-        "transport": "browser_top_level_navigation",
-        "access_key": "configured",
-    }
 
     params = {
         "applicationId": RAKUTEN_APPLICATION_ID,
@@ -58,110 +49,41 @@ def search_rakuten_browser(keyword, hits=10, access_key=None):
         "format": "json",
         "formatVersion": "2",
     }
-    api_url = RAKUTEN_API_URL + "?" + urlencode(params, quote_via=quote)
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context()
-        page = context.new_page()
-        api_response = {}
-        request_failure = {}
+    try:
+        response = requests.get(
+            RAKUTEN_API_URL,
+            params=params,
+            headers={"Accept": "application/json"},
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError(f"楽天API通信エラー: {exc}") from exc
 
-        def capture_response(response):
-            if response.url.startswith(RAKUTEN_API_URL):
-                body = ""
-                try:
-                    if response.status >= 400:
-                        body = response.text()[:2000]
-                except Exception:
-                    body = ""
-                api_response.update({
-                    "status": response.status,
-                    "status_text": response.status_text,
-                    "content_type": response.headers.get("content-type", ""),
-                    "url": _safe_url(response.url),
-                    "body_head": body,
-                })
+    body = response.text
+    if response.status_code < 200 or response.status_code >= 300:
+        # Access Keyそのものはログに出さない。
+        safe_url = response.url.replace(access_key, "***")
+        raise RuntimeError(
+            f"楽天API HTTP {response.status_code}: {body[:2000]} | URL={safe_url}"
+        )
 
-        def capture_request_failed(request):
-            if request.url.startswith(RAKUTEN_API_URL):
-                request_failure.update({
-                    "failure": request.failure,
-                    "url": _safe_url(request.url),
-                })
+    try:
+        result = response.json()
+    except ValueError as exc:
+        raise RuntimeError(
+            "楽天API応答がJSONではありません。"
+            f" Content-Type={response.headers.get('content-type', '')}"
+            f" body={body[:2000]}"
+        ) from exc
 
-        page.on("response", capture_response)
-        page.on("requestfailed", capture_request_failed)
+    error = _rakuten_error(result)
+    if error:
+        raise RuntimeError("楽天APIエラー: " + error)
 
-        try:
-            # まず登録済みのWebサイトを開き、そのページをRefererの起点にする。
-            page.goto(RAKUTEN_PAGES_URL, wait_until="domcontentloaded", timeout=30000)
-
-            # JSONPをscriptサブリソースとして読み込むとChromiumのORB
-            # (ERR_BLOCKED_BY_ORB) によりJSON応答が遮断される場合がある。
-            # そこでAPI URLそのものをトップレベル遷移させ、Playwrightの
-            # ネットワーク応答として本文を取得する。これはCORS/ORBを回避し、
-            # Rakuten側にはWebサイトからの通常のナビゲーションとして送信する。
-            response = page.goto(
-                api_url,
-                wait_until="domcontentloaded",
-                timeout=30000,
-            )
-
-            if response is None:
-                raise RuntimeError("楽天APIからHTTPレスポンスを取得できませんでした。")
-
-            status = response.status
-            content_type = response.headers.get("content-type", "")
-            body = response.text()
-
-            api_response.update({
-                "status": status,
-                "status_text": response.status_text,
-                "content_type": content_type,
-                "url": _safe_url(response.url),
-                "body_head": body[:2000],
-            })
-
-            if status < 200 or status >= 300:
-                raise RuntimeError(
-                    "楽天API HTTP " + str(status) + ": " + body[:2000]
-                )
-
-            try:
-                result = json.loads(body)
-            except json.JSONDecodeError as exc:
-                raise RuntimeError(
-                    "楽天API応答がJSONではありません。Content-Type="
-                    + content_type
-                    + " body="
-                    + body[:2000]
-                ) from exc
-
-            error = _rakuten_error(result)
-            if error:
-                raise RuntimeError("楽天APIエラー: " + error)
-
-            raw_items = result.get("Items") or result.get("items") or []
-            items = [_normalize_item(item) for item in raw_items]
-            items = [item for item in items if item]
-            if not items:
-                raise RuntimeError(
-                    "楽天商品が見つかりません。検索語: " + keyword
-                )
-            return items
-
-        except PlaywrightTimeoutError as exc:
-            raise RuntimeError(
-                "楽天API検索タイムアウト。診断: "
-                + json.dumps({**diagnostics, "api_response": api_response, "request_failure": request_failure}, ensure_ascii=False)
-            ) from exc
-        except Exception as exc:
-            raise RuntimeError(
-                "楽天ブラウザAPI検索に失敗しました: " + str(exc)
-                + " | 診断: "
-                + json.dumps({**diagnostics, "api_response": api_response, "request_failure": request_failure}, ensure_ascii=False)
-            ) from exc
-        finally:
-            context.close()
-            browser.close()
+    raw_items = result.get("Items") or result.get("items") or []
+    items = [_normalize_item(item) for item in raw_items]
+    items = [item for item in items if item]
+    if not items:
+        raise RuntimeError("楽天商品が見つかりません。検索語: " + keyword)
+    return items
