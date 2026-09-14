@@ -1,4 +1,4 @@
-# Rakuten API browser-origin diagnostic: no-cors fetch from registered GitHub Pages origin
+# Rakuten API browser-origin keyword comparison diagnostic
 name: 楽天ブラウザブリッジ実接続診断
 on:
   push:
@@ -10,7 +10,7 @@ jobs:
   diagnostic:
     runs-on: ubuntu-latest
     steps:
-      - name: Playwrightで楽天API実接続を診断
+      - name: Playwrightで楽天API検索語別の実接続を診断
         env:
           HATENA_URL: https://kazuyuki0217.github.io/cookingauto/rakuten-test/
           RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
@@ -26,85 +26,68 @@ jobs:
           page_url = os.environ['HATENA_URL']
           access_key = os.environ['RAKUTEN_ACCESS_KEY']
           api = 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'
-          params = {
-              'applicationId':'5db6e350-5a71-4843-8dcf-894bef88df',
-              'accessKey':access_key,
-              'affiliateId':'56e8483c.b8c4995b.56e8483d.205a3086',
-              'keyword':'フライパン',
-              'hits':'3',
-              'page':'1',
-              'format':'json',
-              'formatVersion':'2',
-              'sort':'-reviewCount',
-              'orFlag':'1',
-              'availability':'1',
-              'imageFlag':'1'
-          }
-          api_url = api + '?' + urlencode(params)
+          keywords = ['フライパン', '包丁', '鍋', '保存容器']
+          results = []
 
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
               context = browser.new_context()
               page = context.new_page()
-              captured = {}
-
-              def on_request(r):
-                  if '/IchibaItem/Search/' not in r.url:
-                      return
-                  captured['request_headers'] = {k:v for k,v in r.headers.items() if k.lower() in ('referer','origin','sec-fetch-dest','sec-fetch-mode','sec-fetch-site')}
-
-              def on_response(r):
-                  if '/IchibaItem/Search/' not in r.url:
-                      return
-                  captured['status'] = r.status
-                  captured['content_type'] = r.headers.get('content-type')
-                  try:
-                      captured['body'] = r.body().decode('utf-8', errors='replace')
-                  except Exception as e:
-                      captured['body_error'] = str(e)
-
-              def on_failed(r):
-                  if '/IchibaItem/Search/' in r.url:
-                      captured['failed'] = r.failure
-
-              page.on('request', on_request)
-              page.on('response', on_response)
-              page.on('requestfailed', on_failed)
               page.goto(page_url, wait_until='domcontentloaded', timeout=60000)
               page.set_extra_http_headers({'Origin': 'https://kazuyuki0217.github.io', 'Referer': page_url})
-              page.evaluate("""(url) => {
-                window.rakutenDiag = {done:false, error:null, status:null, type:null, body:null};
-                fetch(url, {method:'GET', mode:'no-cors', credentials:'omit', cache:'no-store'})
-                  .then(r => {
-                    window.rakutenDiag.status = r.status;
-                    window.rakutenDiag.type = r.type;
-                    return r.text().then(t => { window.rakutenDiag.body = t; window.rakutenDiag.done = true; });
-                  })
-                  .catch(e => { window.rakutenDiag.error = String(e); window.rakutenDiag.done = true; });
-              }""", api_url)
-              page.wait_for_timeout(10000)
-              js_diag = page.evaluate('window.rakutenDiag')
-              print('=== TEST_GITHUB_PAGES_BROWSER_NO_CORS ===')
-              print('PAGE_URL=' + page.url)
-              print('JS_DIAG=' + json.dumps(js_diag, ensure_ascii=False))
-              print('NETWORK_STATUS=' + str(captured.get('status')))
-              print('NETWORK_CONTENT_TYPE=' + str(captured.get('content_type')))
-              print('NETWORK_FAILURE=' + str(captured.get('failed')))
-              print('NETWORK_REQUEST_HEADERS=' + json.dumps(captured.get('request_headers',{}), ensure_ascii=False))
-              print('NETWORK_BODY_HEAD=' + captured.get('body','')[:3000])
+
+              for keyword in keywords:
+                  params = {
+                      'applicationId':'5db6e350-5a71-4843-8dcf-894bef88df',
+                      'accessKey':access_key,
+                      'affiliateId':'56e8483c.b8c4995b.56e8483d.205a3086',
+                      'keyword':keyword,
+                      'hits':'3','page':'1','format':'json','formatVersion':'2',
+                      'sort':'-reviewCount','orFlag':'1','availability':'1','imageFlag':'1'
+                  }
+                  api_url = api + '?' + urlencode(params)
+                  captured = {}
+
+                  def on_response(r):
+                      if '/IchibaItem/Search/' not in r.url:
+                          return
+                      captured['status'] = r.status
+                      captured['content_type'] = r.headers.get('content-type')
+                      try:
+                          captured['body'] = r.body().decode('utf-8', errors='replace')
+                      except Exception as e:
+                          captured['body_error'] = str(e)
+
+                  def on_failed(r):
+                      if '/IchibaItem/Search/' in r.url:
+                          captured['failed'] = r.failure
+
+                  page.on('response', on_response)
+                  page.on('requestfailed', on_failed)
+                  page.evaluate("""(url) => fetch(url, {method:'GET', mode:'no-cors', credentials:'omit', cache:'no-store'}).catch(()=>{})""", api_url)
+                  page.wait_for_timeout(5000)
+                  body = captured.get('body','')
+                  item_count = None
+                  first_name = None
+                  if body:
+                      try:
+                          data = json.loads(body)
+                          items = data.get('items') or data.get('Items') or []
+                          item_count = len(items)
+                          if items and isinstance(items[0], dict):
+                              first_name = items[0].get('itemName')
+                      except Exception:
+                          pass
+                  result = {'keyword': keyword, 'http': captured.get('status'), 'content_type': captured.get('content_type'), 'failure': captured.get('failed'), 'item_count': item_count, 'first_product_name': first_name}
+                  results.append(result)
+                  print('KEYWORD_RESULT=' + json.dumps(result, ensure_ascii=False))
+
+                  page.remove_listener('response', on_response)
+                  page.remove_listener('requestfailed', on_failed)
+
               page.close(); context.close(); browser.close()
 
-          status = captured.get('status')
-          body = captured.get('body','')
-          if status != 200:
-              raise RuntimeError('楽天API GitHub Pages no-cors実接続失敗: ' + json.dumps({'http':status,'failure':captured.get('failed'),'request_headers':captured.get('request_headers',{}),'js_diag':js_diag,'body_head':body[:1000]}, ensure_ascii=False))
-          try:
-              data = json.loads(body)
-          except Exception as e:
-              raise RuntimeError('楽天API HTTP 200だがJSON解析失敗: ' + str(e) + ' body=' + body[:2000])
-          items = data.get('items') or data.get('Items') or []
-          if not items:
-              raise RuntimeError('楽天API HTTP 200だがフライパン商品0件: ' + json.dumps(data, ensure_ascii=False)[:4000])
-          print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps({'http':status, 'product_count':len(items), 'first_product_name':items[0].get('itemName') if isinstance(items[0],dict) else None}, ensure_ascii=False))
+          print('=== RAKUTEN_KEYWORD_COMPARISON ===')
+          print('SUMMARY=' + json.dumps(results, ensure_ascii=False))
           PY
           python /tmp/diag.py
