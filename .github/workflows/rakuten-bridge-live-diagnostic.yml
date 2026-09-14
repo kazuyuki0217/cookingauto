@@ -1,4 +1,5 @@
 # Rakuten API browser-origin diagnostic: actual Hatena page -> browser fetch
+# Re-run diagnostic after fixing Playwright evaluate argument passing.
 name: 楽天ブラウザブリッジ実接続診断
 on:
   push:
