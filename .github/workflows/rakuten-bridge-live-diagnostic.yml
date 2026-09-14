@@ -57,3 +57,4 @@ jobs:
               browser.close()
           PY
           python /tmp/diag.py
+          # live verification trigger
