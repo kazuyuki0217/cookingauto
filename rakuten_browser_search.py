@@ -8,7 +8,6 @@ from playwright.sync_api import sync_playwright
 RAKUTEN_GAS_URL = os.environ.get("RAKUTEN_GAS_URL") or os.environ.get("PINTEREST_GAS_URL", "")
 RAKUTEN_AUTOMATION_SECRET = os.environ.get("PINTER_AUTOMATION_SECRET", "") or os.environ.get("PINTEREST_AUTOMATION_SECRET", "")
 RAKUTEN_API_MARKER = "openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/"
-RAKUTEN_ALLOWED_ORIGIN = "https://tansinfuninkazu.hatenablog.com"
 
 
 def _normalize_item(item):
@@ -38,20 +37,35 @@ def _response_summary(parsed, body):
     raw_items = parsed.get("Items")
     if raw_items is None:
         raw_items = parsed.get("items")
-    return {"keys": list(parsed.keys())[:30], "errors": parsed.get("errors"), "count_field": parsed.get("count"), "page_count": parsed.get("pageCount"), "items_type": type(raw_items).__name__ if raw_items is not None else None, "items_length": len(raw_items) if isinstance(raw_items, list) else None, "body_head": str(body or "")[:1200]}
+    return {
+        "keys": list(parsed.keys())[:30],
+        "errors": parsed.get("errors"),
+        "count_field": parsed.get("count"),
+        "page_count": parsed.get("pageCount"),
+        "items_type": type(raw_items).__name__ if raw_items is not None else None,
+        "items_length": len(raw_items) if isinstance(raw_items, list) else None,
+        "body_head": str(body or "")[:1200],
+    }
 
 
 def _make_data_from_parsed(parsed, diagnostics=None):
     if not isinstance(parsed, dict):
         return None
     if parsed.get("error") or parsed.get("errors"):
-        return {"success": False, "error": parsed.get("error_description") or parsed.get("error") or parsed.get("errors")}
+        return {
+            "success": False,
+            "error": parsed.get("error_description") or parsed.get("error") or parsed.get("errors"),
+        }
     raw_items = parsed.get("Items")
     if raw_items is None:
         raw_items = parsed.get("items")
     if raw_items is None:
         raw_items = []
-    result = {"success": True, "count": len(raw_items) if isinstance(raw_items, list) else 0, "items": raw_items}
+    result = {
+        "success": True,
+        "count": len(raw_items) if isinstance(raw_items, list) else 0,
+        "items": raw_items,
+    }
     if diagnostics is not None:
         result["rakuten_diagnostics"] = diagnostics
     return result
@@ -62,14 +76,32 @@ def _search_once(keyword, hits):
         raise RuntimeError("楽天GASブリッジURLが設定されていません。")
     if not RAKUTEN_AUTOMATION_SECRET:
         raise RuntimeError("PINTEREST_AUTOMATION_SECRETが設定されていません。")
-    query = urlencode({"service": "rakuten_browser", "secret": RAKUTEN_AUTOMATION_SECRET, "keyword": keyword, "hits": str(hits)})
+
+    query = urlencode({
+        "service": "rakuten_browser",
+        "secret": RAKUTEN_AUTOMATION_SECRET,
+        "keyword": keyword,
+        "hits": str(hits),
+    })
     url = RAKUTEN_GAS_URL.rstrip("?") + ("&" if "?" in RAKUTEN_GAS_URL else "?") + query
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(extra_http_headers={"Origin": RAKUTEN_ALLOWED_ORIGIN, "Referer": RAKUTEN_ALLOWED_ORIGIN + "/"})
+        context = browser.new_context()
         try:
             page = context.new_page()
-            diagnostics = {"rakuten_status": None, "rakuten_url": "", "rakuten_body": "", "rakuten_parsed": None, "rakuten_summary": None, "route_fetch_error": "", "console": [], "page_errors": [], "request_failed": []}
+            diagnostics = {
+                "rakuten_status": None,
+                "rakuten_url": "",
+                "rakuten_body": "",
+                "rakuten_parsed": None,
+                "rakuten_summary": None,
+                "route_fetch_error": "",
+                "console": [],
+                "page_errors": [],
+                "request_failed": [],
+            }
+
             def record(body, status, request_url):
                 diagnostics["rakuten_status"] = status
                 diagnostics["rakuten_url"] = request_url.split("accessKey=")[0] + "accessKey=[hidden]"
@@ -78,27 +110,30 @@ def _search_once(keyword, hits):
                     parsed = _parse_jsonp(body)
                     diagnostics["rakuten_parsed"] = parsed
                     diagnostics["rakuten_summary"] = _response_summary(parsed, body)
-                except Exception as e:
-                    diagnostics["rakuten_parsed"] = {"parse_error": str(e)}
+                except Exception as exc:
+                    diagnostics["rakuten_parsed"] = {"parse_error": str(exc)}
+
             def capture(response):
                 if RAKUTEN_API_MARKER in response.url:
-                    try: record(response.body().decode("utf-8", errors="replace"), response.status, response.url)
-                    except Exception as e: diagnostics["rakuten_body"] = "BODY_READ_ERROR: " + str(e)
+                    try:
+                        record(response.body().decode("utf-8", errors="replace"), response.status, response.url)
+                    except Exception as exc:
+                        diagnostics["rakuten_body"] = "BODY_READ_ERROR: " + str(exc)
+
             def route_handler(route):
                 try:
-                    upstream = route.fetch(
-                        timeout=60000,
-                        headers={
-                            "Origin": RAKUTEN_ALLOWED_ORIGIN,
-                            "Referer": RAKUTEN_ALLOWED_ORIGIN + "/",
-                        },
-                    )
+                    upstream = route.fetch(timeout=60000)
                     body = upstream.body()
                     record(body.decode("utf-8", errors="replace"), upstream.status, route.request.url)
-                    route.fulfill(status=upstream.status, body=body, headers={"Content-Type": "application/javascript; charset=utf-8"})
-                except Exception as e:
-                    diagnostics["route_fetch_error"] = str(e)[:1000]
+                    route.fulfill(
+                        status=upstream.status,
+                        body=body,
+                        headers={"Content-Type": "application/javascript; charset=utf-8"},
+                    )
+                except Exception as exc:
+                    diagnostics["route_fetch_error"] = str(exc)[:1000]
                     route.abort()
+
             page.on("response", capture)
             page.on("requestfailed", lambda r: diagnostics["request_failed"].append(str(r.failure or "unknown failure")[:500]) if RAKUTEN_API_MARKER in r.url else None)
             page.route("**/IchibaItem/Search/**", route_handler)
@@ -109,10 +144,14 @@ def _search_once(keyword, hits):
             except Exception as exc:
                 data = _make_data_from_parsed(diagnostics.get("rakuten_parsed"), diagnostics)
                 if data is None:
-                    raise RuntimeError("楽天ブラウザ検索が完了しませんでした。診断: " + json.dumps(diagnostics, ensure_ascii=False)[:8000]) from exc
+                    raise RuntimeError(
+                        "楽天ブラウザ検索が完了しませんでした。診断: "
+                        + json.dumps(diagnostics, ensure_ascii=False)[:8000]
+                    ) from exc
         finally:
             context.close()
             browser.close()
+
     if not isinstance(data, dict):
         raise RuntimeError("楽天ブラウザブリッジの応答を取得できませんでした。")
     if not data.get("success"):
@@ -125,17 +164,24 @@ def _search_once(keyword, hits):
 def _fallback_keywords(keyword):
     original = str(keyword or "").strip()
     candidates = []
+
     def add(value):
         value = re.sub(r"\s+", " ", str(value or "")).strip()
-        if value and value not in candidates: candidates.append(value)
+        if value and value not in candidates:
+            candidates.append(value)
+
     add(original)
     simplified = re.sub(r"[（(].*?[）)]", " ", original)
     add(simplified)
     for category in ["フライパン", "鍋", "包丁", "まな板", "キッチン用品", "保存容器", "調味料"]:
-        if category in original or category in simplified: add(category)
-    if any(w in original for w in ["フライパン", "炒め", "焼き", "ステーキ", "肉"]): add("フライパン")
-    elif any(w in original for w in ["包丁", "切る", "千切り"]): add("包丁")
-    else: add("キッチン用品")
+        if category in original or category in simplified:
+            add(category)
+    if any(word in original for word in ["フライパン", "炒め", "焼き", "ステーキ", "肉"]):
+        add("フライパン")
+    elif any(word in original for word in ["包丁", "切る", "千切り"]):
+        add("包丁")
+    else:
+        add("キッチン用品")
     return candidates
 
 
@@ -146,8 +192,16 @@ def search_rakuten_browser(keyword, hits=10, access_key=None):
     for search_keyword in keywords:
         try:
             items, detail = _search_once(search_keyword, hits)
-            if items: return items
-            diagnostics.append(search_keyword + ": 商品0件 / " + json.dumps(detail or {}, ensure_ascii=False)[:5000])
+            if items:
+                return items
+            diagnostics.append(
+                search_keyword + ": 商品0件 / " + json.dumps(detail or {}, ensure_ascii=False)[:5000]
+            )
         except Exception as exc:
             diagnostics.append(search_keyword + ": " + str(exc)[:5000])
-    raise RuntimeError("楽天商品が見つかりません。試行検索語: " + " / ".join(keywords) + "\n楽天API診断: " + " || ".join(diagnostics))
+    raise RuntimeError(
+        "楽天商品が見つかりません。試行検索語: "
+        + " / ".join(keywords)
+        + "\n楽天API診断: "
+        + " || ".join(diagnostics)
+    )
