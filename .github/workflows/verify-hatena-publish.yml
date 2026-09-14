@@ -1,0 +1,66 @@
+name: ブログ実投稿確認
+
+on:
+  push:
+    branches:
+      - photo-blog-publish-test-20260914
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+      - name: Pythonをセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 必要なライブラリをインストール
+        run: pip install requests
+      - name: 実投稿用記事を作成
+        run: |
+          printf '%s\n' '仕事終わりでもご飯が進む。豚ロースの味噌焼き｜一人暮らしの簡単おかず' > article_title.txt
+          printf '%s\n' '豚ロースの味噌焼き' > dish_name.txt
+          cat > article_body.txt <<'EOF'
+          <p>仕事終わりの自炊は、できるだけ手間をかけず、それでもちゃんとご飯が進むものを作りたい。今回は豚ロースの味噌焼きです。</p>
+          <p>味噌のコクが豚ロースによく合い、白ごはんと一緒に食べたくなる一皿。平日の夜でも作りやすいのがポイントです。</p>
+          <h2>豚ロースの味噌焼き</h2>
+          <p>材料や分量は、実際に使う味噌の濃さや肉の大きさによって調整してください。豚ロースに味噌だれをなじませ、フライパンで焼きます。焦げやすいので火加減を見ながら両面を焼き、肉に火が通れば完成です。</p>
+          <h2>仕事終わりの一人暮らしに向いている理由</h2>
+          <p>豚ロースは焼くだけでも主菜になり、味噌味なら調味料をあれこれ増やさなくても満足感を出しやすい料理です。洗い物を増やしたくない夜にも向いています。</p>
+          <h2>使いやすいフライパンを選ぶなら</h2>
+          <p>味噌焼きのように焼き目をつけたい料理では、食材を並べやすく、火加減を調整しやすいフライパンがあると自炊がかなり楽になります。</p>
+          EOF
+      - name: 楽天アフィリエイトを組み込む
+        env:
+          RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
+          RAKUTEN_PAGES_URL: https://tansinfuninkazu.hatenablog.com/
+          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVfrkcqZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
+          PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
+        run: python article_affiliate_builder.py
+      - name: はてなブログへ実投稿
+        env:
+          HATENA_ID: ${{ secrets.HATENA_ID }}
+          HATENA_API_KEY: ${{ secrets.HATENA_API_KEY }}
+          HATENA_ENDPOINT: https://blog.hatena.ne.jp/${{ secrets.HATENA_ID }}/tansinfuninkazu.hatenablog.com/atom/entry
+          POST_TITLE_FILE: article_title.txt
+          POST_BODY_FILE: article_final.html
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          os.environ['POST_TITLE'] = Path(os.environ['POST_TITLE_FILE']).read_text(encoding='utf-8').strip()
+          os.environ['POST_BODY'] = Path(os.environ['POST_BODY_FILE']).read_text(encoding='utf-8')
+          import post_to_hatena
+          PY
+          test -s hatena_post_url.txt
+          echo 'HATENA_PUBLISH_VERIFIED=success'
+          echo 'HATENA_POST_URL_FILE_CREATED=true'
+      - name: 投稿URLを成果物として保存
+        uses: actions/upload-artifact@v4
+        with:
+          name: hatena-publish-verification
+          path: hatena_post_url.txt
