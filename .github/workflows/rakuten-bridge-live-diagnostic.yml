@@ -18,7 +18,7 @@ jobs:
           python -m pip install playwright
           python -m playwright install --with-deps chromium
           cat > /tmp/diag.py <<'PY'
-          import json, os
+          import json, os, time
           from urllib.parse import urlencode, urlparse, parse_qsl
           from playwright.sync_api import sync_playwright
 
@@ -67,12 +67,34 @@ jobs:
               print('=== TEST VERIFIED_GAS_SECRET_URL ===')
               response = page.goto(url, wait_until='domcontentloaded', timeout=60000)
               print(json.dumps({'status': response.status if response else None, 'url': page.url, 'title': page.title()}, ensure_ascii=False))
-              print('DOM_DIAGNOSTIC=' + json.dumps(page.evaluate("({body:document.body ? document.body.innerText : '', scripts:Array.from(document.scripts).map(function(s){return {src:s.src, inline:s.textContent.slice(0,1000)}}), rakutenDone:window.__RAKUTEN_DONE, rakutenResult:window.__RAKUTEN_RESULT})"), ensure_ascii=False)[:12000])
-              try:
-                  page.wait_for_function('window.__RAKUTEN_DONE === true', timeout=30000)
-              except Exception as e:
-                  print('WAIT_ERROR=' + str(e)[:500])
-              result = page.evaluate('window.__RAKUTEN_RESULT')
+
+              bridge_frame = None
+              for _ in range(50):
+                  for frame in page.frames:
+                      try:
+                          state = frame.evaluate("({done:typeof window.__RAKUTEN_DONE !== 'undefined', result:window.__RAKUTEN_RESULT, body:document.body ? document.body.innerText.slice(0,500) : ''})")
+                          if state.get('done'):
+                              bridge_frame = frame
+                              break
+                      except Exception:
+                          pass
+                  if bridge_frame:
+                      break
+                  page.wait_for_timeout(200)
+
+              print('FRAMES=' + json.dumps([{'url':f.url, 'name':f.name} for f in page.frames], ensure_ascii=False))
+              if bridge_frame:
+                  print('BRIDGE_FRAME=' + json.dumps({'url':bridge_frame.url, 'name':bridge_frame.name}, ensure_ascii=False))
+                  print('BRIDGE_DOM=' + json.dumps(bridge_frame.evaluate("({body:document.body ? document.body.innerText : '', done:window.__RAKUTEN_DONE, result:window.__RAKUTEN_RESULT})"), ensure_ascii=False)[:12000])
+                  try:
+                      bridge_frame.wait_for_function('window.__RAKUTEN_DONE === true', timeout=30000)
+                  except Exception as e:
+                      print('WAIT_ERROR=' + str(e)[:500])
+                  result = bridge_frame.evaluate('window.__RAKUTEN_RESULT')
+              else:
+                  print('BRIDGE_FRAME_NOT_FOUND')
+                  result = None
+
               print('RESULT=' + json.dumps(result, ensure_ascii=False)[:10000])
               print('EVENTS=' + json.dumps(events, ensure_ascii=False)[:10000])
               api.dispose()
