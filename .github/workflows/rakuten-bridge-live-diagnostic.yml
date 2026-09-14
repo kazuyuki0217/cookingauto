@@ -1,4 +1,4 @@
-# Rakuten API browser-origin diagnostic: iframe from Hatena-origin browser
+# Rakuten API browser-origin diagnostic: anchor click from Hatena-origin browser
 name: 楽天ブラウザブリッジ実接続診断
 on:
   push:
@@ -48,6 +48,11 @@ jobs:
               page = context.new_page()
               captured = {}
 
+              def on_request(r):
+                  if '/IchibaItem/Search/' not in r.url:
+                      return
+                  captured['request_headers'] = {k:v for k,v in r.headers.items() if k.lower() in ('referer','origin','sec-fetch-dest','sec-fetch-mode','sec-fetch-site')}
+
               def on_response(r):
                   if '/IchibaItem/Search/' not in r.url:
                       return
@@ -62,36 +67,35 @@ jobs:
                   if '/IchibaItem/Search/' in r.url:
                       captured['failed'] = r.failure
 
+              page.on('request', on_request)
               page.on('response', on_response)
               page.on('requestfailed', on_failed)
               page.goto(hatena, wait_until='domcontentloaded', timeout=60000)
               page.evaluate("""(url) => {
-                window.__RAKUTEN_IFRAME_ERROR = false;
-                const f = document.createElement('iframe');
-                f.id = 'rakuten-diagnostic-iframe';
-                f.src = url;
-                f.style.width = '1px';
-                f.style.height = '1px';
-                f.style.border = '0';
-                f.onload = () => { window.__RAKUTEN_IFRAME_LOADED = true; };
-                f.onerror = () => { window.__RAKUTEN_IFRAME_ERROR = true; };
-                document.body.appendChild(f);
+                const a = document.createElement('a');
+                a.id = 'rakuten-diagnostic-anchor';
+                a.href = url;
+                a.target = '_self';
+                a.textContent = 'rakuten-diagnostic';
+                a.style.position = 'fixed';
+                a.style.left = '-9999px';
+                document.body.appendChild(a);
+                a.click();
               }""", api_url)
               page.wait_for_timeout(10000)
-              result = page.evaluate("({loaded: !!window.__RAKUTEN_IFRAME_LOADED, error: !!window.__RAKUTEN_IFRAME_ERROR})")
-              print('=== TEST_HATENA_BROWSER_IFRAME ===')
-              print('IFRAME_LOADED=' + str(result.get('loaded')))
-              print('IFRAME_ERROR=' + str(result.get('error')))
+              print('=== TEST_HATENA_BROWSER_ANCHOR ===')
+              print('PAGE_URL=' + page.url)
               print('NETWORK_STATUS=' + str(captured.get('status')))
               print('NETWORK_CONTENT_TYPE=' + str(captured.get('content_type')))
               print('NETWORK_FAILURE=' + str(captured.get('failed')))
+              print('NETWORK_REQUEST_HEADERS=' + json.dumps(captured.get('request_headers',{}), ensure_ascii=False))
               print('NETWORK_BODY_HEAD=' + captured.get('body','')[:3000])
               page.close(); context.close(); browser.close()
 
           status = captured.get('status')
           body = captured.get('body','')
           if status != 200:
-              raise RuntimeError('楽天API iframe実接続失敗: ' + json.dumps({'http':status,'failure':captured.get('failed'),'body_head':body[:1000]}, ensure_ascii=False))
+              raise RuntimeError('楽天API anchor実接続失敗: ' + json.dumps({'http':status,'failure':captured.get('failed'),'request_headers':captured.get('request_headers',{}),'body_head':body[:1000]}, ensure_ascii=False))
           try:
               data = json.loads(body)
           except Exception as e:
