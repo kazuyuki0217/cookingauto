@@ -1,4 +1,4 @@
-# Rakuten API official test-form diagnostic
+# Rakuten API official test-form bridge diagnostic
 name: 楽天API公式テストフォーム実接続診断
 on:
   push:
@@ -10,7 +10,7 @@ jobs:
   diagnostic:
     runs-on: ubuntu-latest
     steps:
-      - name: 楽天公式テストフォームの実行経路を診断
+      - name: 楽天公式テストフォームの内部リクエストを特定
         env:
           RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
         run: |
@@ -30,59 +30,46 @@ jobs:
               context = browser.new_context()
               page = context.new_page()
               responses = []
+              requests = []
+
+              def on_request(r):
+                  if 'webservice.rakuten.co.jp' in r.url:
+                      requests.append({'method': r.method, 'url': r.url.split('?')[0], 'resource_type': r.resource_type})
 
               def on_response(r):
-                  if 'openapi.rakuten.co.jp' in r.url:
-                      item = {'url_host': r.url.split('/')[2], 'status': r.status, 'content_type': r.headers.get('content-type')}
+                  if 'webservice.rakuten.co.jp' in r.url and r.request.resource_type in ('xhr','fetch','document'):
+                      item = {'method': r.request.method, 'url': r.url.split('?')[0], 'status': r.status, 'content_type': r.headers.get('content-type')}
                       try:
                           body = r.body().decode('utf-8', errors='replace')
-                          item['body_head'] = body[:3000]
+                          item['body_head'] = body[:1200]
                       except Exception:
                           pass
                       responses.append(item)
 
+              page.on('request', on_request)
               page.on('response', on_response)
               page.goto(test_url, wait_until='domcontentloaded', timeout=60000)
               page.wait_for_timeout(3000)
 
-              inputs = page.locator('input').evaluate_all("""els => els.map(e => ({tag:e.tagName,type:e.type,name:e.name,id:e.id,placeholder:e.placeholder,valueLength:(e.value||'').length}))""")
-              buttons = page.locator('button, input[type=button], input[type=submit]').evaluate_all("""els => els.map(e => ({tag:e.tagName,type:e.type,text:(e.innerText||'').trim(),value:e.value||'',id:e.id,name:e.name}))""")
-              print('INPUTS=' + json.dumps(inputs, ensure_ascii=False))
-              print('BUTTONS=' + json.dumps(buttons, ensure_ascii=False))
-
-              # Set values using DOM properties and dispatch the events the form expects.
-              page.locator('input').evaluate_all("""(els, values) => {
-                  const find = (rx) => els.find(e => rx.test((e.name||'')+' '+(e.id||'')+' '+(e.placeholder||'')));
-                  const app = find(/application|app.?id/i);
-                  const key = find(/access.?key/i);
-                  const keyword = find(/keyword|キーワード|検索キーワード/i);
-                  if (app) { app.focus(); app.value = values.app; app.dispatchEvent(new Event('input',{bubbles:true})); app.dispatchEvent(new Event('change',{bubbles:true})); }
-                  if (key) { key.focus(); key.value = values.key; key.dispatchEvent(new Event('input',{bubbles:true})); key.dispatchEvent(new Event('change',{bubbles:true})); }
-                  if (keyword) { keyword.focus(); keyword.value = 'フライパン'; keyword.dispatchEvent(new Event('input',{bubbles:true})); keyword.dispatchEvent(new Event('change',{bubbles:true})); }
-              }""", {'app': app_id, 'key': access_key})
-
-              # Prefer the visible GET control; otherwise invoke a likely form submit control.
-              clicked = page.locator('button, input[type=button], input[type=submit]').evaluate_all("""els => {
-                  const e = els.find(e => /^(GET|Send|送信|実行)$/i.test((e.innerText||e.value||'').trim()));
-                  if (!e) return false;
-                  e.click();
-                  return true;
-              }""")
-              print('GET_BUTTON_CLICKED=' + str(clicked))
+              # Exact form fields identified from the live page.
+              page.locator('#inputCredential').fill(app_id)
+              page.locator('#accessKey').fill(access_key)
+              keyword = page.locator('input[placeholder*="Keyword"]').first
+              keyword.fill('フライパン')
+              page.locator('#btnExecute').click()
               page.wait_for_timeout(10000)
 
-              print('=== RAKUTEN_OFFICIAL_TEST_FORM ===')
-              print('PAGE_URL=' + page.url)
-              print('API_RESPONSES=' + json.dumps(responses, ensure_ascii=False))
-              print('BODY_TEXT_HEAD=' + page.locator('body').inner_text()[:5000])
-
+              print('=== RAKUTEN_OFFICIAL_TEST_FORM_INTERNAL ===')
+              print('REQUESTS=' + json.dumps(requests, ensure_ascii=False))
+              print('RESPONSES=' + json.dumps(responses, ensure_ascii=False))
+              print('PAGE_TEXT_TAIL=' + page.locator('body').inner_text()[-2500:])
               page.close(); context.close(); browser.close()
 
           if not responses:
-              raise RuntimeError('公式テストフォームからopenapi.rakuten.co.jpへの実リクエストを確認できませんでした')
-          ok = [r for r in responses if r.get('status') == 200 and r.get('body_head')]
-          if not ok:
-              raise RuntimeError('公式テストフォーム経由の楽天API応答がHTTP 200になっていません: ' + json.dumps(responses, ensure_ascii=False)[:4000])
-          print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps(ok[-1], ensure_ascii=False))
+              raise RuntimeError('公式テストフォームの内部リクエストを取得できませんでした')
+          api_responses = [r for r in responses if r.get('status') == 200 and r.get('body_head')]
+          if not api_responses:
+              raise RuntimeError('公式テストフォーム内部応答がHTTP 200になっていません: ' + json.dumps(responses, ensure_ascii=False)[:4000])
+          print('RAKUTEN_CONNECTION_VERIFIED=' + json.dumps(api_responses[-1], ensure_ascii=False))
           PY
           python /tmp/diag.py
