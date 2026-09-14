@@ -106,7 +106,24 @@ def _product_link(item, label):
     return f'<p><a href="{escape(url, quote=True)}" rel="nofollow sponsored noopener" target="_blank">{escape(label)}</a><br>{name}</p>'
 
 
+def _photo_html(dish_name):
+    """Insert the already-uploaded Hatena Fotolife image into the final HTML."""
+    photo_url = find_photo_url()
+    if not photo_url:
+        print("料理写真URLが見つからないため、画像HTMLは追加しません。")
+        return ""
+    alt = escape(str(dish_name or "料理写真").strip() or "料理写真", quote=True)
+    return (
+        '<p><img src="'
+        + escape(photo_url, quote=True)
+        + '" alt="'
+        + alt
+        + '" loading="lazy" style="max-width:100%;height:auto;"></p>'
+    )
+
+
 def build_article(title, body, dish_name):
+    photo_html = _photo_html(dish_name)
     products = choose_products(dish_name)
     labels = [
         "▶ 仕事終わりの自炊に使いやすい道具を見てみる",
@@ -119,6 +136,11 @@ def build_article(title, body, dish_name):
         if link:
             links.append(link)
     affiliate_html = "\n".join(links)
+
+    # 写真は記事冒頭へ。既存の本文・楽天アフィリエイト導線は変更しない。
+    if photo_html:
+        body = photo_html + "\n" + body.lstrip()
+
     if affiliate_html:
         body = body.rstrip() + "\n\n<h3>今回の料理で使いたい道具</h3>\n" + affiliate_html
     return body
@@ -130,6 +152,7 @@ def main():
     dish_name = Path("dish_name.txt").read_text(encoding="utf-8").strip()
     article = build_article(title, body, dish_name)
     Path("article_final.html").write_text(article, encoding="utf-8")
+    print("料理写真を記事へ組み込みました。")
     print("楽天アフィリエイト商品を記事へ組み込みました。")
 
 
