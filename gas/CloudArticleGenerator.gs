@@ -60,7 +60,9 @@ function cloudArticleGenerate(options) {
     'TITLE: と DISH_NAME: 以外の前置き、解説、Markdownコードブロックは不要です。'
   ].join('\n');
 
-  var models = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+  // 2026年9月現在、2.5 Flash-Liteは新規ユーザー向けに利用できない場合があるため、
+  // 現行のGemini 3.5系を優先する。無料枠で利用可能なモデルを使用する。
+  var models = ['gemini-3.5-flash', 'gemini-3.5-flash-lite'];
   var lastError = '';
 
   for (var i = 0; i < models.length; i++) {
