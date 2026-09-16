@@ -38,10 +38,13 @@ def mime_type(path):
 def main():
     gas_url = os.environ.get("RAKUTEN_GAS_URL", "").strip()
     secret = os.environ.get("PINTEREST_AUTOMATION_SECRET", "").strip()
+    gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not gas_url:
         raise RuntimeError("RAKUTEN_GAS_URLが設定されていません。")
     if not secret:
         raise RuntimeError("PINTEREST_AUTOMATION_SECRETが設定されていません。")
+    if not gemini_api_key:
+        raise RuntimeError("GEMINI_API_KEYがGitHub Actionsに設定されていません。")
 
     image_path = find_image()
     image_base64 = base64.b64encode(image_path.read_bytes()).decode("ascii")
@@ -50,6 +53,7 @@ def main():
         "secret": secret,
         "mimeType": mime_type(image_path),
         "imageBase64": image_base64,
+        "geminiApiKey": gemini_api_key,
     }
 
     request = urllib.request.Request(
