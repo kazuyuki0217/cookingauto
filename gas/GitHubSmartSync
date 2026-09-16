@@ -6,6 +6,7 @@
  * ・料理本体コードを安全に同期
  * ・楽天ブラウザ検索HTMLを直接取得して同期
  * ・Pinterest Sandboxテストを同期
+ * ・Pinterest Standard審査デモを同期
  * ・料理記事楽天統合を同期
  * ・RakutenAutomationBridgeを同期
  * ・PinterestAutomationBridgeを同期
@@ -67,12 +68,13 @@ function runGitHubSmartSync() {
 
     var changedBrowser = syncOneGitHubFile_(c, files, 'gas/RakutenBrowserBridge.html', 'RakutenBrowserBridge', 'HTML', '楽天ブラウザHTML');
     var changedSandbox = syncOneGitHubFile_(c, files, 'gas/PinterestSandboxTest.gs', 'PinterestSandboxTest', 'SERVER_JS', 'Pinterest Sandboxテスト');
+    var changedStandardDemo = syncOneGitHubFile_(c, files, 'gas/PinterestStandardDemo.gs', 'PinterestStandardDemo', 'SERVER_JS', 'Pinterest Standard審査デモ');
     var changedArticle = syncOneGitHubFile_(c, files, 'gas/料理記事楽天統合.gs', '料理記事楽天統合', 'SERVER_JS', '料理記事楽天統合');
     var changedRakuten = syncOneGitHubFile_(c, files, 'gas/RakutenAutomationBridge.gs', 'RakutenAutomationBridge', 'SERVER_JS', '楽天自動化ブリッジ');
     var changedPinterest = syncOneGitHubFile_(c, files, 'gas/PinterestAutomationBridge.gs', 'PinterestAutomationBridge', 'SERVER_JS', 'Pinterest自動化ブリッジ');
     var changedCloudArticle = syncOneGitHubFile_(c, files, 'gas/CloudArticleGenerator.gs', 'CloudArticleGenerator', 'SERVER_JS', 'Cloud記事生成エンジン');
 
-    if (!changedMain && !changedBrowser && !changedSandbox && !changedArticle && !changedRakuten && !changedPinterest && !changedCloudArticle) {
+    if (!changedMain && !changedBrowser && !changedSandbox && !changedStandardDemo && !changedArticle && !changedRakuten && !changedPinterest && !changedCloudArticle) {
       console.log('同期対象に変更なし。');
       console.log('保持ファイル数: ' + files.length);
       return '同期不要：GitHubとGASは最新状態です。';
@@ -90,6 +92,7 @@ function runGitHubSmartSync() {
     console.log('料理本体コード: ' + (changedMain ? '更新' : '変更なし'));
     console.log('楽天ブラウザHTML: ' + (changedBrowser ? '更新/追加' : '変更なし'));
     console.log('Pinterest Sandboxテスト: ' + (changedSandbox ? '更新/追加' : '変更なし'));
+    console.log('Pinterest Standard審査デモ: ' + (changedStandardDemo ? '更新/追加' : '変更なし'));
     console.log('料理記事楽天統合: ' + (changedArticle ? '更新/追加' : '変更なし'));
     console.log('楽天自動化ブリッジ: ' + (changedRakuten ? '更新/追加' : '変更なし'));
     console.log('Pinterest自動化ブリッジ: ' + (changedPinterest ? '更新/追加' : '変更なし'));
