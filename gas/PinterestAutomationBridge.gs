@@ -4,11 +4,13 @@
  * GitHub Actionsから5件のPinデータを受け取り、
  * Code.gsに保存されているPinterest OAuthトークンを利用して投稿する。
  * 楽天商品検索も同じ認証済みブリッジ経由で実行する。
+ * Cloud記事生成も同じ認証済みブリッジ経由で実行する。
  *
  * セキュリティ:
  * - PINTEREST_AUTOMATION_SECRETはScript Propertiesに保存
  * - Pinterestアクセストークン/refresh tokenはGitHubへ渡さない
  * - 楽天API認証情報もScript Propertiesからのみ取得
+ * - GEMINI_API_KEYはGAS Script Propertiesからのみ取得
  */
 
 function KAZU_PINTEREST_AUTOMATION_SECRET_() {
@@ -138,6 +140,28 @@ function doPost(e) {
       var rakutenKey = KAZU_RAKUTEN_KEY_();
       return KAZU_PINTEREST_AUTOMATION_JSON_(true, {
         accessKey: rakutenKey
+      });
+    }
+
+    // Cloud記事生成は既存の楽天・Pinterest処理より先に分岐し、
+    // 既存の5件Pin投稿ロジックには一切変更を加えない。
+    if (body.service === 'cloud_article') {
+      if (!body.imageBase64) {
+        return KAZU_PINTEREST_AUTOMATION_JSON_(false, {
+          error: 'cloud_articleにはimageBase64が必要です。'
+        });
+      }
+
+      var article = cloudArticleGenerate({
+        imageBase64: String(body.imageBase64),
+        mimeType: String(body.mimeType || 'image/jpeg')
+      });
+
+      return KAZU_PINTEREST_AUTOMATION_JSON_(true, {
+        service: 'cloud_article',
+        title: article.title,
+        dish_name: article.dish_name,
+        body: article.body
       });
     }
 
