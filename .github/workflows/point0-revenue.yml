@@ -56,16 +56,17 @@ jobs:
           HATENA_FOTOLIFE_FOLDER: 料理アフィリエイト自動化
         run: python hatena_fotolife_upload.py
 
-      - name: 無料Geminiで料理写真を解析して記事作成
+      - name: GAS Cloud Geminiで料理写真を解析して記事作成
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python generate_article.py
+          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2fI6FvHHZo3-PqkuPx0BH71cQsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
+          PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
+        run: python cloud_article_client.py
 
       - name: 楽天アフィリエイト商品を組み込む
         env:
           RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
           RAKUTEN_PAGES_URL: https://tansinfuninkazu.hatenablog.com/
-          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2fI6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
+          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2fI6FvHHZo3-PqkuPx0BH71cQsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
           PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
         run: python article_affiliate_builder.py
 
@@ -105,4 +106,4 @@ jobs:
         run: |
           test -s article_final.html
           test -s hatena_post_url.txt
-          echo 'Point0：料理写真→はてなフォトライフ→Gemini→楽天アフィリエイト→完成記事投稿→Pinterest文案生成まで完了。Pinterest本番投稿はPoint0の対象外です。'
+          echo 'Point0：料理写真→はてなフォトライフ→GAS Cloud Gemini→楽天アフィリエイト→完成記事投稿→Pinterest文案生成まで完了。Pinterest本番投稿はPoint0の対象外です。'
