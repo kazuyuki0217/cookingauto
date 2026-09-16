@@ -34,7 +34,11 @@ pins = [
     },
 ]
 
-result = [{**p, "link": BLOG_URL, "image_url": image_url} for p in pins]
+# PinterestAutomationBridge.gs が要求する imageUrl/title/link のキー名に合わせる。
+result = [
+    {**p, "link": BLOG_URL, "imageUrl": image_url}
+    for p in pins
+]
 Path("pinterest_pins.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
 print("Pinterest用5パターン生成完了")
 print("リンク:", BLOG_URL)
