@@ -1,19 +1,7 @@
 /*************************************************
  * 料理アフィリエイト自動化
  * GitHub ⇄ GAS スマート同期 完全版
- *
- * ・変更がある場合だけGASを更新
- * ・料理本体コードを安全に同期
- * ・楽天ブラウザ検索HTMLを直接取得して同期
- * ・Pinterest Sandboxテストを同期
- * ・Pinterest Standard審査デモを同期
- * ・料理記事楽天統合を同期
- * ・RakutenAutomationBridgeを同期
- * ・PinterestAutomationBridgeを同期
- * ・Cloud記事生成エンジンを同期
- * ・既存GASファイルは保持
  *************************************************/
-
 function runGitHubSmartSync() {
   console.log('================================');
   console.log('GitHubスマート同期 開始');
@@ -22,7 +10,6 @@ function runGitHubSmartSync() {
     var project = getGasProject_();
     var githubFiles = listGitHubGasFiles_(c);
     if (!githubFiles || !githubFiles.length) throw new Error('GitHubのgasフォルダにファイルがありません。');
-
     var gasServerFiles = project.files.filter(function(file) {
       return file.type === 'SERVER_JS' && !/GitHubSync/i.test(file.name) && !/GitHubReverseFix/i.test(file.name) && !/GitHubAutoSync/i.test(file.name) && !/GitHubSmartSync/i.test(file.name);
     });
@@ -51,21 +38,14 @@ function runGitHubSmartSync() {
       }
     }
     if (!target || !gasTarget) throw new Error('料理本体コードの同期対象を安全に特定できません。');
-
-    console.log('比較対象: ' + target.path + ' ⇄ GAS ' + gasTarget.name);
     var githubSource = getGitHubFile_(c, target.path);
     var gasSource = typeof gasTarget.source === 'string' ? gasTarget.source : '';
     var githubHash = createHash_(githubSource), gasHash = createHash_(gasSource);
-    console.log('GitHub HASH: ' + githubHash);
-    console.log('GAS HASH: ' + gasHash);
-
     var files = project.files.map(function(file) { return {name:file.name,type:file.type,source:typeof file.source === 'string' ? file.source : ''}; });
     var changedMain = false;
     if (githubHash !== gasHash) {
-      console.log('料理本体コードの変更を検出しました。');
       files.forEach(function(file) { if (file.name === gasTarget.name) { file.source = githubSource; changedMain = true; } });
-    } else console.log('料理本体コードは変更なし。');
-
+    }
     var changedBrowser = syncOneGitHubFile_(c, files, 'gas/RakutenBrowserBridge.html', 'RakutenBrowserBridge', 'HTML', '楽天ブラウザHTML');
     var changedSandbox = syncOneGitHubFile_(c, files, 'gas/PinterestSandboxTest.gs', 'PinterestSandboxTest', 'SERVER_JS', 'Pinterest Sandboxテスト');
     var changedStandardDemo = syncOneGitHubFile_(c, files, 'gas/PinterestStandardDemo.gs', 'PinterestStandardDemo', 'SERVER_JS', 'Pinterest Standard審査デモ');
@@ -73,59 +53,34 @@ function runGitHubSmartSync() {
     var changedRakuten = syncOneGitHubFile_(c, files, 'gas/RakutenAutomationBridge.gs', 'RakutenAutomationBridge', 'SERVER_JS', '楽天自動化ブリッジ');
     var changedPinterest = syncOneGitHubFile_(c, files, 'gas/PinterestAutomationBridge.gs', 'PinterestAutomationBridge', 'SERVER_JS', 'Pinterest自動化ブリッジ');
     var changedCloudArticle = syncOneGitHubFile_(c, files, 'gas/CloudArticleGenerator.gs', 'CloudArticleGenerator', 'SERVER_JS', 'Cloud記事生成エンジン');
-
-    if (!changedMain && !changedBrowser && !changedSandbox && !changedStandardDemo && !changedArticle && !changedRakuten && !changedPinterest && !changedCloudArticle) {
-      console.log('同期対象に変更なし。');
-      console.log('保持ファイル数: ' + files.length);
-      return '同期不要：GitHubとGASは最新状態です。';
-    }
-
+    var changedPhotoBridge = syncOneGitHubFile_(c, files, 'gas/PointKazuDriveBridge.gs', 'PointKazuDriveBridge', 'SERVER_JS', '料理写真コレクション連携');
+    if (!changedMain && !changedBrowser && !changedSandbox && !changedStandardDemo && !changedArticle && !changedRakuten && !changedPinterest && !changedCloudArticle && !changedPhotoBridge) return '同期不要：GitHubとGASは最新状態です。';
     var scriptId = ScriptApp.getScriptId();
     var url = 'https://script.googleapis.com/v1/projects/' + encodeURIComponent(scriptId) + '/content';
-    console.log('GASプロジェクト更新開始');
     var res = UrlFetchApp.fetch(url, {method:'put',contentType:'application/json',headers:{Authorization:'Bearer '+ScriptApp.getOAuthToken()},payload:JSON.stringify({files:files}),muteHttpExceptions:true});
     var code = res.getResponseCode();
     if (code !== 200) throw new Error('GAS更新失敗 HTTP ' + code + '\n' + res.getContentText());
-
-    console.log('GitHub → GAS 反映完了');
-    console.log('保持ファイル数: ' + files.length);
-    console.log('料理本体コード: ' + (changedMain ? '更新' : '変更なし'));
-    console.log('楽天ブラウザHTML: ' + (changedBrowser ? '更新/追加' : '変更なし'));
-    console.log('Pinterest Sandboxテスト: ' + (changedSandbox ? '更新/追加' : '変更なし'));
-    console.log('Pinterest Standard審査デモ: ' + (changedStandardDemo ? '更新/追加' : '変更なし'));
-    console.log('料理記事楽天統合: ' + (changedArticle ? '更新/追加' : '変更なし'));
-    console.log('楽天自動化ブリッジ: ' + (changedRakuten ? '更新/追加' : '変更なし'));
-    console.log('Pinterest自動化ブリッジ: ' + (changedPinterest ? '更新/追加' : '変更なし'));
-    console.log('Cloud記事生成エンジン: ' + (changedCloudArticle ? '更新/追加' : '変更なし'));
     return '同期完了：GitHubの変更をGASへ反映しました。';
   } catch (error) {
     var message = error && error.message ? error.message : String(error);
-    console.log('GitHubスマート同期 エラー');
     console.log(message);
     return '同期エラー: ' + message;
   }
 }
-
 function syncOneGitHubFile_(c, files, path, name, type, label) {
   var source = '';
-  try { source = getGitHubFile_(c, path); console.log('GitHub' + label + '取得成功: ' + path); }
-  catch (e) { console.log('GitHubに' + label + 'がありません。'); return false; }
+  try { source = getGitHubFile_(c, path); } catch (e) { console.log('GitHubに' + label + 'がありません。'); return false; }
   var index = -1;
-  for (var i = 0; i < files.length; i++) {
-    if (files[i].name === name || files[i].name === name + '.gs' || files[i].name === name + '.html') { index = i; break; }
-  }
+  for (var i = 0; i < files.length; i++) if (files[i].name === name || files[i].name === name + '.gs' || files[i].name === name + '.html') { index = i; break; }
   if (index >= 0) {
     var current = typeof files[index].source === 'string' ? files[index].source : '';
-    if (current === source && files[index].name === name && files[index].type === type) { console.log(label + 'は変更なし。'); return false; }
+    if (current === source && files[index].name === name && files[index].type === type) return false;
     files[index] = {name:name,type:type,source:source};
-    console.log(label + 'を更新します。');
     return true;
   }
   files.push({name:name,type:type,source:source});
-  console.log(label + 'をGASへ追加します。');
   return true;
 }
-
 function createHash_(text) {
   var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, text, Utilities.Charset.UTF_8);
   return bytes.map(function(byte) { var value = byte < 0 ? byte + 256 : byte; return value.toString(16).padStart(2,'0'); }).join('');
