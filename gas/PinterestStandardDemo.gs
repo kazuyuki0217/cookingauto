@@ -193,9 +193,7 @@ function PinterestStandardDemo診断() {
 
 /* =========================================================
  * Standard審査デモ専用 callback
- * 既存コード.gsのOAuth callbackより先に判定するため、
- * このファイル側のdoGetを最後に定義しています。
- * Standard Demo以外は従来のdoGetと同じ処理へ戻します。
+ * 既存コード.gsのdoGetからSTANDARD_DEMO_だけがここへ来ます。
  * ========================================================= */
 function PinterestStandardDemoOAuthCallback_(e) {
   var params = e && e.parameter ? e.parameter : {};
@@ -218,23 +216,4 @@ function PinterestStandardDemoOAuthCallback_(e) {
     '<p>許可された権限：' + String(result.scope || '').replace(/[<>]/g, '') + '</p>' +
     '<p>次はGASで「PinterestStandardDemoSandboxBoard」を実行してください。</p>'
   );
-}
-
-function doGet(e) {
-  var action = e && e.parameter ? e.parameter.action : '';
-  var params = e && e.parameter ? e.parameter : {};
-  var standardState = params.state || '';
-  var hasStandardCallback = String(standardState).indexOf('STANDARD_DEMO_') === 0 && (params.code || params.error);
-
-  if (hasStandardCallback) return PinterestStandardDemoOAuthCallback_(e);
-
-  if (action === 'pinterest_oauth_start') {
-    var authUrl = KAZU_PINTEREST_AUTH_URL_();
-    return HtmlService.createHtmlOutput('<script>window.top.location.href=' + JSON.stringify(authUrl) + ';</script><p>Pinterest認証ページへ移動しています。</p>');
-  }
-  var hasOAuthResponse = params.code || params.error;
-  if (action === 'pinterest_oauth_callback' || hasOAuthResponse) return KAZU_PINTEREST_OAUTH_CALLBACK_(e);
-  return HtmlService.createHtmlOutputFromFile('RakutenBrowserBridge')
-    .setTitle('楽天商品検索')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
