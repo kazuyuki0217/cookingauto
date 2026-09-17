@@ -7,9 +7,8 @@
  * 3. SandboxでBoard取得/作成
  * 4. SandboxへPinを作成
  *
- * 既存のCode.gs / doGet / 本番Pinterest処理は変更しません。
- * Trial環境でもStandard審査用のOAuth + API統合デモを
- * Sandboxで実演できるようにするための補助ファイルです。
+ * 既存のCode.gs / 本番Pinterest処理を壊さず、
+ * Standard審査デモのOAuth callbackだけを専用処理します。
  *************************************************/
 
 function PinterestStandardDemoOAuthURL() {
@@ -42,9 +41,6 @@ function PinterestStandardDemoOAuth開始() {
 function PinterestStandardDemoSandboxToken(code) {
   code = String(code || '').trim();
   if (!code) throw new Error('OAuth codeがありません。PinterestからredirectされたURLのcodeを指定してください。');
-
-  var expectedState = PropertiesService.getScriptProperties().getProperty('PINTEREST_STANDARD_DEMO_STATE');
-  if (!expectedState) throw new Error('デモ用OAuth stateがありません。先にPinterestStandardDemoOAuthURLを実行してください。');
 
   var auth = Utilities.base64Encode(
     KAZU_PINTEREST_APP_ID_() + ':' + KAZU_PINTEREST_CLIENT_SECRET_()
@@ -193,4 +189,52 @@ function PinterestStandardDemo診断() {
   };
   Logger.log(JSON.stringify(result, null, 2));
   return result;
+}
+
+/* =========================================================
+ * Standard審査デモ専用 callback
+ * 既存コード.gsのOAuth callbackより先に判定するため、
+ * このファイル側のdoGetを最後に定義しています。
+ * Standard Demo以外は従来のdoGetと同じ処理へ戻します。
+ * ========================================================= */
+function PinterestStandardDemoOAuthCallback_(e) {
+  var params = e && e.parameter ? e.parameter : {};
+  var expected = PropertiesService.getScriptProperties().getProperty('PINTEREST_STANDARD_DEMO_STATE');
+
+  if (params.error) {
+    return HtmlService.createHtmlOutput('<h3>Pinterest Standard審査デモ認証キャンセル</h3><p>' + String(params.error).replace(/[<>]/g, '') + '</p>');
+  }
+  if (!params.code) {
+    return HtmlService.createHtmlOutput('<h3>OAuth codeがありません</h3><p>Pinterestからcode付きでリダイレクトされているか確認してください。</p>');
+  }
+  if (!params.state || !expected || params.state !== expected) {
+    throw new Error('Pinterest Standard審査デモ OAuth stateが一致しません。StandardデモのOAuth URLを最初から実行してください。');
+  }
+
+  var result = PinterestStandardDemoSandboxToken(params.code);
+  return HtmlService.createHtmlOutput(
+    '<h2>Pinterest Standard審査デモ OAuth成功</h2>' +
+    '<p>OAuth codeをSandbox access tokenへ交換しました。</p>' +
+    '<p>許可された権限：' + String(result.scope || '').replace(/[<>]/g, '') + '</p>' +
+    '<p>次はGASで「PinterestStandardDemoSandboxBoard」を実行してください。</p>'
+  );
+}
+
+function doGet(e) {
+  var action = e && e.parameter ? e.parameter.action : '';
+  var params = e && e.parameter ? e.parameter : {};
+  var standardState = params.state || '';
+  var hasStandardCallback = String(standardState).indexOf('STANDARD_DEMO_') === 0 && (params.code || params.error);
+
+  if (hasStandardCallback) return PinterestStandardDemoOAuthCallback_(e);
+
+  if (action === 'pinterest_oauth_start') {
+    var authUrl = KAZU_PINTEREST_AUTH_URL_();
+    return HtmlService.createHtmlOutput('<script>window.top.location.href=' + JSON.stringify(authUrl) + ';</script><p>Pinterest認証ページへ移動しています。</p>');
+  }
+  var hasOAuthResponse = params.code || params.error;
+  if (action === 'pinterest_oauth_callback' || hasOAuthResponse) return KAZU_PINTEREST_OAUTH_CALLBACK_(e);
+  return HtmlService.createHtmlOutputFromFile('RakutenBrowserBridge')
+    .setTitle('楽天商品検索')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
