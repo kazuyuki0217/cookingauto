@@ -1,0 +1,53 @@
+name: GA4アクセス分析レポート
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 15 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ga4-access-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: Pythonをセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: GA4用ライブラリをインストール
+        run: pip install requests google-auth
+
+      - name: GA4アクセスを取得
+        env:
+          GA4_PROPERTY_ID: '15778234011'
+          GA4_LOOKBACK_DAYS: '28'
+          GA4_SERVICE_ACCOUNT_JSON: ${{ secrets.GA4_SERVICE_ACCOUNT_JSON }}
+        run: python tools/ga4_access_report.py
+
+      - name: レポートを保存
+        uses: actions/upload-artifact@v4
+        with:
+          name: ga4-access-report
+          path: ga4_access_report.md
+
+      - name: 最新レポートをリポジトリへ保存
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p reports
+          cp ga4_access_report.md reports/ga4_latest.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add reports/ga4_latest.md
+          git diff --cached --quiet || git commit -m 'chore: update GA4 access report'
+          git push
