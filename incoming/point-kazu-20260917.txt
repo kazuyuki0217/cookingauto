@@ -1,0 +1,1 @@
+Pointカズ test photo transfer. The photo is available in the conversation runtime and will be processed by the existing pipeline.
