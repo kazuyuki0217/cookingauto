@@ -301,6 +301,12 @@ function 全体接続テスト(){
 
 function doGet(e) {
   var action = e && e.parameter ? e.parameter.action : '';
+  var params = e && e.parameter ? e.parameter : {};
+  var standardState = params.state || '';
+  var hasStandardCallback = String(standardState).indexOf('STANDARD_DEMO_') === 0 && (params.code || params.error);
+
+  if (hasStandardCallback) return PinterestStandardDemoOAuthCallback_(e);
+
   var hasOAuthResponse = e && e.parameter && (e.parameter.code || e.parameter.error);
   if (action === 'pinterest_oauth_start') {
     var authUrl = KAZU_PINTEREST_AUTH_URL_();
