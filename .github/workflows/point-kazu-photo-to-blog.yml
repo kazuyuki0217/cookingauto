@@ -3,6 +3,7 @@ name: Pointカズ｜ここに貼った料理写真→自動投稿
 on:
   push:
     paths:
+      - 'incoming/latest_photo.jpg'
       - 'incoming/latest_photo.b64'
   workflow_dispatch:
 
@@ -20,18 +21,19 @@ jobs:
       - name: リポジトリを取得
         uses: actions/checkout@v4
 
-      - name: Pythonをセットアップ
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: 画像を復元
+      - name: 料理写真を入力として確定
         run: |
-          test -s incoming/latest_photo.b64
           mkdir -p images
-          base64 -d incoming/latest_photo.b64 > images/latest_photo.jpg
-          test -s images/latest_photo.jpg
+          if [ -s incoming/latest_photo.jpg ] && file incoming/latest_photo.jpg | grep -qi 'JPEG image data'; then
+            cp incoming/latest_photo.jpg images/latest_photo.jpg
+          elif [ -s incoming/latest_photo.b64 ]; then
+            base64 -d incoming/latest_photo.b64 > images/latest_photo.jpg
+          else
+            echo 'Pointカズ：有効な料理写真が入力されていません。'
+            exit 1
+          fi
           file images/latest_photo.jpg
+          test -s images/latest_photo.jpg
 
       - name: 必要なライブラリをインストール
         run: |
@@ -98,4 +100,4 @@ jobs:
         run: |
           test -s article_final.html
           test -s hatena_post_url.txt
-          echo 'Pointカズ：ここに貼った料理写真→画像公開→AI記事生成→楽天アフィリエイト自動選別・挿入→はてなブログ自動投稿まで完了。'
+          echo 'Pointカズ：写真→画像公開→AI記事生成→楽天アフィリエイト自動選別・挿入→はてなブログ自動投稿まで完了。'
