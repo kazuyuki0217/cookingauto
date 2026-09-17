@@ -1,0 +1,101 @@
+name: Pointカズ｜ここに貼った料理写真→自動投稿
+
+on:
+  push:
+    paths:
+      - 'incoming/latest_photo.b64'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cooking-point-kazu
+  cancel-in-progress: false
+
+jobs:
+  point-kazu:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: Pythonをセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 画像を復元
+        run: |
+          test -s incoming/latest_photo.b64
+          mkdir -p images
+          base64 -d incoming/latest_photo.b64 > images/latest_photo.jpg
+          test -s images/latest_photo.jpg
+          file images/latest_photo.jpg
+
+      - name: 必要なライブラリをインストール
+        run: |
+          pip install -r requirements.txt requests playwright
+          python -m playwright install --with-deps chromium
+
+      - name: 料理写真を準備
+        env:
+          COOKING_IMAGE_FILE: images/latest_photo.jpg
+        run: python upload_cooking_photo.py
+
+      - name: はてなフォトライフへ画像を公開
+        env:
+          HATENA_ID: ${{ secrets.HATENA_ID }}
+          HATENA_API_KEY: ${{ secrets.HATENA_API_KEY }}
+          HATENA_FOTOLIFE_FOLDER: 料理アフィリエイト自動化
+        run: python hatena_fotolife_upload.py
+
+      - name: 写真解析・記事生成
+        env:
+          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVwbfrc6Zzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
+          PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          COOKING_IMAGE_FILE: images/latest_photo.jpg
+        run: python cloud_article_client.py
+
+      - name: 楽天アフィリエイトを自動選別・挿入
+        env:
+          RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
+          RAKUTEN_PAGES_URL: https://tansinfuninkazu.hatenablog.com/
+          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVwbfrc6Zzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
+          PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
+        run: python article_affiliate_builder.py
+
+      - name: はてなブログへ完成記事を自動投稿
+        env:
+          HATENA_ID: ${{ secrets.HATENA_ID }}
+          HATENA_API_KEY: ${{ secrets.HATENA_API_KEY }}
+          HATENA_ENDPOINT: ${{ secrets.HATENA_ENDPOINT }}
+          POST_TITLE_FILE: article_title.txt
+          POST_BODY_FILE: article_final.html
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          os.environ['POST_TITLE'] = Path(os.environ['POST_TITLE_FILE']).read_text(encoding='utf-8').strip()
+          os.environ['POST_BODY'] = Path(os.environ['POST_BODY_FILE']).read_text(encoding='utf-8')
+          import post_to_hatena
+          PY
+
+      - name: 成果物を保存
+        uses: actions/upload-artifact@v4
+        with:
+          name: point-kazu-${{ github.run_number }}
+          path: |
+            article_title.txt
+            dish_name.txt
+            article_body.txt
+            article_final.html
+            cooking_image_url.txt
+            hatena_post_url.txt
+
+      - name: Pointカズ完了確認
+        run: |
+          test -s article_final.html
+          test -s hatena_post_url.txt
+          echo 'Pointカズ：ここに貼った料理写真→画像公開→AI記事生成→楽天アフィリエイト自動選別・挿入→はてなブログ自動投稿まで完了。'
