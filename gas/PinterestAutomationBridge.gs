@@ -59,7 +59,9 @@ function KAZU_RAKUTEN_BROWSER_PAGE_(keyword, hits) {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-function doGet(e) {
+// WebアプリのdoGetはコード.gs側を正式な入口として使用する。
+// このブリッジ側には同名doGetを置かず、Pinterest/Rakuten自動投稿の既存処理を保持する。
+function KAZU_PINTEREST_AUTOMATION_DOGET_(e) {
   try {
     var params = e && e.parameter ? e.parameter : {};
     var service = String(params.service || '').trim();
@@ -101,10 +103,6 @@ function doPost(e) {
     var expected = KAZU_PINTEREST_AUTOMATION_SECRET_();
     if (!body.secret || body.secret !== expected) {
       return KAZU_PINTEREST_AUTOMATION_JSON_(false, {error:'認証に失敗しました。'});
-    }
-
-    if (body.service === 'rakuten_key') {
-      return KAZU_PINTEREST_AUTOMATION_JSON_(true, {accessKey: KAZU_RAKUTEN_KEY_()});
     }
 
     // Cloud記事生成は既存の楽天・Pinterest処理より先に分岐する。
