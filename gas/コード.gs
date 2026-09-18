@@ -308,6 +308,17 @@ function doGet(e) {
   if (hasStandardCallback) return PinterestStandardDemoOAuthCallback_(e);
 
   var hasOAuthResponse = e && e.parameter && (e.parameter.code || e.parameter.error);
+  // Webアプリ疎通診断。既存の楽天/Pinterest/OAuth動作には影響しない。
+  if (action === 'health') {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      service: 'cookingauto',
+      status: 'ok',
+      hasPinterestPost: typeof doPost === 'function',
+      hasPinterestBridge: typeof PinterestPin作成 === 'function'
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
   if (action === 'pinterest_oauth_start') {
     var authUrl = KAZU_PINTEREST_AUTH_URL_();
     return HtmlService.createHtmlOutput('<script>window.top.location.href=' + JSON.stringify(authUrl) + ';</script><p>Pinterest認証ページへ移動しています。</p>');
