@@ -30,17 +30,24 @@ jobs:
             python - <<'PY'
           import base64, re
           from pathlib import Path
-          raw = Path("incoming/latest_photo.b64").read_text(encoding="utf-8").strip()
-          if raw.startswith("data:") and "," in raw:
-              raw = raw.split(",", 1)[1]
-          raw = re.sub(r"[^A-Za-z0-9+/=_-]", "", raw)
-          raw = raw.replace("-", "+").replace("_", "/")
-          raw += "=" * ((4 - len(raw) % 4) % 4)
-          data = base64.b64decode(raw, validate=False)
-          if not data:
-              raise SystemExit("latest_photo.b64 が空です。")
-          Path("images/latest_photo.jpg").write_bytes(data)
-          print("latest_photo.b64 を画像へ復元しました:", len(data), "bytes")
+          raw_bytes = Path("incoming/latest_photo.b64").read_bytes()
+          try:
+              raw = raw_bytes.decode("utf-8").strip()
+          except UnicodeDecodeError:
+              # 拡張子が.b64でも中身がJPEGバイナリなら、そのまま画像として使用
+              Path("images/latest_photo.jpg").write_bytes(raw_bytes)
+              print("latest_photo.b64 はJPEGバイナリでした。直接復元:", len(raw_bytes), "bytes")
+          else:
+              if raw.startswith("data:") and "," in raw:
+                  raw = raw.split(",", 1)[1]
+              raw = re.sub(r"[^A-Za-z0-9+/=_-]", "", raw)
+              raw = raw.replace("-", "+").replace("_", "/")
+              raw += "=" * ((4 - len(raw) % 4) % 4)
+              data = base64.b64decode(raw, validate=False)
+              if not data:
+                  raise SystemExit("latest_photo.b64 が空です。")
+              Path("images/latest_photo.jpg").write_bytes(data)
+              print("latest_photo.b64 をBase64から復元しました:", len(data), "bytes")
           PY
           else
             echo 'Pointウェイブ：有効な料理写真が入力されていません。'
