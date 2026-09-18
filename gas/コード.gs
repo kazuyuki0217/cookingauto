@@ -319,6 +319,26 @@ function doGet(e) {
     })).setMimeType(ContentService.MimeType.JSON);
   }
 
+  // 楽天API単体診断。既存のPinterest/OAuth/通常画面には影響しない。
+  if (action === 'rakuten_test') {
+    try {
+      var testData = KAZU_RAKUTEN_SEARCH_('フライパン', 3);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        stage: 'rakuten_api',
+        http: 200,
+        count: testData.items ? testData.items.length : 0,
+        message: '楽天API接続成功'
+      })).setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        stage: 'rakuten_api',
+        error: String(err && err.message ? err.message : err)
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
   if (action === 'pinterest_oauth_start') {
     var authUrl = KAZU_PINTEREST_AUTH_URL_();
     return HtmlService.createHtmlOutput('<script>window.top.location.href=' + JSON.stringify(authUrl) + ';</script><p>Pinterest認証ページへ移動しています。</p>');
