@@ -34,7 +34,6 @@ jobs:
           try:
               raw = raw_bytes.decode("utf-8").strip()
           except UnicodeDecodeError:
-              # 拡張子が.b64でも中身がJPEGバイナリなら、そのまま画像として使用
               Path("images/latest_photo.jpg").write_bytes(raw_bytes)
               print("latest_photo.b64 はJPEGバイナリでした。直接復元:", len(raw_bytes), "bytes")
           else:
@@ -73,7 +72,7 @@ jobs:
           HATENA_FOTOLIFE_FOLDER: 料理アフィリエイト自動化
         run: python hatena_fotolife_upload.py
 
-      - name: 写真解析・記事生成
+      - name: Gemini写真解析→Claude風記事生成
         env:
           RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2F6I6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
           PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
@@ -81,7 +80,7 @@ jobs:
           COOKING_IMAGE_FILE: images/latest_photo.jpg
         run: python cloud_article_client.py
 
-      - name: 楽天アフィリエイトを自動選別・クリック理由付きで挿入
+      - name: 楽天アフィリエイトを心理設計で自然分散
         env:
           RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
           RAKUTEN_PAGES_URL: https://tansinfuninkazu.hatenablog.com/
@@ -134,4 +133,4 @@ jobs:
           test -s hatena_post_url.txt
           test -s pinterest_pins.json
           test -s pinterest_publish_result.json
-          echo 'Pointウェイブ：料理写真→AI記事→楽天アフィリエイト→写真付きはてな→異なる5パターンPinterest投稿まで完了。'
+          echo 'Pointウェイブ：料理写真→Gemini写真解析→Claude風記事→楽天アフィリエイト自然分散→写真付きはてな→5パターンPinterest投稿まで完了。'
