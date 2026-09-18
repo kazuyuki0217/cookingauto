@@ -40,7 +40,7 @@ def main():
     secret = os.environ.get("PINTEREST_AUTOMATION_SECRET", "").strip()
     gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not gas_url:
-        raise RuntimeError("RAKUTEN_GAS_URLが設定されていません。")
+        raise RuntimeError("記事生成GAS URLが設定されていません。")
     if not secret:
         raise RuntimeError("PINTEREST_AUTOMATION_SECRETが設定されていません。")
     if not gemini_api_key:
@@ -49,6 +49,8 @@ def main():
     image_path = find_image()
     image_base64 = base64.b64encode(image_path.read_bytes()).decode("ascii")
     payload = {
+        # 技術上の互換性のため service 名は維持。
+        # 実体は Gemini → Claude風記事生成。
         "service": "cloud_article",
         "secret": secret,
         "mimeType": mime_type(image_path),
@@ -68,28 +70,28 @@ def main():
             raw = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Cloud記事生成API HTTP {exc.code}: {detail[:1000]}") from exc
+        raise RuntimeError(f"Gemini→Claude風記事生成API HTTP {exc.code}: {detail[:1000]}") from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(f"Cloud記事生成API通信エラー: {exc}") from exc
+        raise RuntimeError(f"Gemini→Claude風記事生成API通信エラー: {exc}") from exc
 
     try:
         result = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Cloud記事生成APIの応答がJSONではありません: {raw[:1000]}") from exc
+        raise RuntimeError(f"Gemini→Claude風記事生成APIの応答がJSONではありません: {raw[:1000]}") from exc
 
     if not result.get("success"):
-        raise RuntimeError(f"Cloud記事生成API失敗: {result.get('error', '不明なエラー')}")
+        raise RuntimeError(f"Gemini→Claude風記事生成API失敗: {result.get('error', '不明なエラー')}")
 
     title = str(result.get("title", "")).strip()
     dish_name = str(result.get("dish_name", "")).strip()
     body = str(result.get("body", "")).strip()
     if not title or not body:
-        raise RuntimeError("Cloud記事生成APIからタイトルまたは本文を取得できませんでした。")
+        raise RuntimeError("Gemini→Claude風記事生成APIからタイトルまたは本文を取得できませんでした。")
 
     Path("article_title.txt").write_text(title, encoding="utf-8")
     Path("dish_name.txt").write_text(dish_name or title, encoding="utf-8")
     Path("article_body.txt").write_text(body, encoding="utf-8")
-    print("GAS + Gemini Cloudによる写真解析・記事生成完了")
+    print("Gemini→Claude風：料理写真の解析・記事生成完了")
     print("料理:", dish_name or title)
     print("タイトル:", title)
     print("写真:", image_path)
