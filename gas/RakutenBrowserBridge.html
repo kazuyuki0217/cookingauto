@@ -13,73 +13,22 @@ pre{white-space:pre-wrap;word-break:break-word;background:#f5f5f5;padding:12px}
 <h1>楽天商品検索</h1>
 <pre id="result">楽天APIへ接続中...</pre>
 <script>
-var config=<?!= configJson ?>;
-var callbackName='';
-var timeoutId=null;
-window.__RAKUTEN_DONE=false;
-window.__RAKUTEN_RESULT=null;
-
-function cleanup(){
-  if(timeoutId){clearTimeout(timeoutId);timeoutId=null;}
-  if(callbackName){
-    try{delete window[callbackName];}catch(e){window[callbackName]=undefined;}
-    callbackName='';
-  }
-  var old=document.getElementById('rakuten-jsonp');
-  if(old)old.remove();
+function show(data){
+  document.getElementById('result').textContent=JSON.stringify(data,null,2);
 }
-
-function finish(data){
-  window.__RAKUTEN_RESULT=data;
-  window.__RAKUTEN_DONE=true;
-  cleanup();
-  document.getElementById('result').textContent=JSON.stringify(data);
+function fail(error){
+  var message=error && error.message ? error.message : String(error || '楽天API通信に失敗しました。');
+  show({success:false,error:message});
 }
-
-function fail(message){
-  finish({success:false,error:String(message||'楽天API通信に失敗しました。')});
-}
-
 function searchRakuten(){
-  var keyword=String(config.keyword||'フライパン').trim()||'フライパン';
-  callbackName='rakutenBridge_'+Date.now();
-  window[callbackName]=function(data){
-    if(!data){fail('楽天API応答が空です。');return;}
-    if(data.error){fail(data.error_description||data.error);return;}
-    var items=data.Items||data.items||[];
-    if(!Array.isArray(items)){fail('楽天API応答にItems/itemsがありません。');return;}
-    finish({success:true,count:items.length,items:items});
-  };
-
-  var params={
-    applicationId:String(config.applicationId),
-    accessKey:String(config.accessKey),
-    keyword:keyword,
-    hits:String(config.hits||10),
-    page:'1',
-    format:'json',
-    formatVersion:'2',
-    sort:'-reviewCount',
-    orFlag:'1',
-    availability:'1',
-    imageFlag:'1',
-    callback:callbackName
-  };
-  if(String(config.affiliateId||'').trim())params.affiliateId=String(config.affiliateId).trim();
-
-  var p=new URLSearchParams(params);
-  var script=document.createElement('script');
-  script.id='rakuten-jsonp';
-  script.async=true;
-  script.onerror=function(){fail('楽天APIのJSONPスクリプト読み込みに失敗しました。');};
-  script.src='https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701?'+p.toString();
-  document.head.appendChild(script);
-
-  timeoutId=setTimeout(function(){
-    if(!window.__RAKUTEN_DONE)fail('楽天APIタイムアウト（20秒）。');
-  },20000);
+  google.script.run
+    .withSuccessHandler(function(data){
+      if(!data){fail('楽天API応答が空です。');return;}
+      show(data);
+    })
+    .withFailureHandler(fail)
+    .楽天ブラウザ検索API('フライパン',10);
 }
-
 searchRakuten();
 </script>
 </body>
