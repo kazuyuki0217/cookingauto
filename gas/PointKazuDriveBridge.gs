@@ -8,7 +8,7 @@
 
 var POINT_KAZU_DRIVE_FOLDER = '料理写真コレクション';
 var POINT_KAZU_GITHUB_PATH = 'incoming/latest_photo.b64';
-var POINT_KAZU_STATE_KEY = 'POINT_KAZU_LAST_FILE_ID';
+var POINT_KAZU_STATE_KEY = 'POINT_KAZU_LAST_SIGNATURE';
 
 function PointKazuDriveSetup() {
   var folder = getOrCreatePointKazuDriveFolder_();
@@ -45,15 +45,20 @@ function PointKazuDriveCheck() {
 
   var latest = candidates[0];
   var props = PropertiesService.getScriptProperties();
-  var lastId = props.getProperty(POINT_KAZU_STATE_KEY) || '';
-  if (latest.getId() === lastId) return '処理済み：' + latest.getName();
+  var signature = [
+    latest.getId(),
+    latest.getLastUpdated().getTime(),
+    latest.getSize()
+  ].join('|');
+  var lastSignature = props.getProperty(POINT_KAZU_STATE_KEY) || '';
+  if (signature === lastSignature) return '処理済み：' + latest.getName();
 
   var blob = latest.getBlob();
   var bytes = blob.getBytes();
   var base64 = Utilities.base64Encode(bytes);
   uploadPointKazuPhotoToGitHub_(base64, latest.getName());
 
-  props.setProperty(POINT_KAZU_STATE_KEY, latest.getId());
+  props.setProperty(POINT_KAZU_STATE_KEY, signature);
   return 'GitHub転送完了：' + latest.getName();
 }
 
