@@ -1,4 +1,4 @@
-name: Pointカズ｜ここに貼った料理写真→自動投稿
+name: Pointカズ｜ここに貼った料理写真→ポイントウェイブ自動投稿
 
 on:
   push:
@@ -29,7 +29,7 @@ jobs:
           elif [ -s incoming/latest_photo.b64 ]; then
             base64 -d incoming/latest_photo.b64 > images/latest_photo.jpg
           else
-            echo 'Pointカズ：有効な料理写真が入力されていません。'
+            echo 'Pointウェイブ：有効な料理写真が入力されていません。'
             exit 1
           fi
           file images/latest_photo.jpg
@@ -54,21 +54,21 @@ jobs:
 
       - name: 写真解析・記事生成
         env:
-          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVwbfrcqZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
+          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2F6I6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
           PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           COOKING_IMAGE_FILE: images/latest_photo.jpg
         run: python cloud_article_client.py
 
-      - name: 楽天アフィリエイトを自動選別・挿入
+      - name: 楽天アフィリエイトを自動選別・クリック理由付きで挿入
         env:
           RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
           RAKUTEN_PAGES_URL: https://tansinfuninkazu.hatenablog.com/
-          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVwbfrcqZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
+          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2F6I6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
           PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
         run: python article_affiliate_builder.py
 
-      - name: はてなブログへ完成記事を自動投稿
+      - name: はてなブログへ写真付き完成記事を自動投稿
         env:
           HATENA_ID: ${{ secrets.HATENA_ID }}
           HATENA_API_KEY: ${{ secrets.HATENA_API_KEY }}
@@ -84,10 +84,19 @@ jobs:
           import post_to_hatena
           PY
 
+      - name: Pinterest用5パターンを生成
+        run: python generate_pinterest_pins.py
+
+      - name: Pinterestへ5件を自動投稿
+        env:
+          PINTEREST_GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2F6I6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
+          PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
+        run: python publish_pinterest_via_gas.py
+
       - name: 成果物を保存
         uses: actions/upload-artifact@v4
         with:
-          name: point-kazu-${{ github.run_number }}
+          name: point-kazu-wave-${{ github.run_number }}
           path: |
             article_title.txt
             dish_name.txt
@@ -95,9 +104,13 @@ jobs:
             article_final.html
             cooking_image_url.txt
             hatena_post_url.txt
+            pinterest_pins.json
+            pinterest_publish_result.json
 
-      - name: Pointカズ完了確認
+      - name: Pointウェイブ完了確認
         run: |
           test -s article_final.html
           test -s hatena_post_url.txt
-          echo 'Pointカズ：写真→画像公開→AI記事生成→楽天アフィリエイト自動選別・挿入→はてなブログ自動投稿まで完了。'
+          test -s pinterest_pins.json
+          test -s pinterest_publish_result.json
+          echo 'Pointウェイブ：料理写真→AI記事→楽天アフィリエイト→写真付きはてな→異なる5パターンPinterest投稿まで完了。'
