@@ -27,7 +27,21 @@ jobs:
           if [ -s incoming/latest_photo.jpg ] && file incoming/latest_photo.jpg | grep -qi 'JPEG image data'; then
             cp incoming/latest_photo.jpg images/latest_photo.jpg
           elif [ -s incoming/latest_photo.b64 ]; then
-            base64 -d incoming/latest_photo.b64 > images/latest_photo.jpg
+            python - <<'PY'
+          import base64, re
+          from pathlib import Path
+          raw = Path("incoming/latest_photo.b64").read_text(encoding="utf-8").strip()
+          if raw.startswith("data:") and "," in raw:
+              raw = raw.split(",", 1)[1]
+          raw = re.sub(r"[^A-Za-z0-9+/=_-]", "", raw)
+          raw = raw.replace("-", "+").replace("_", "/")
+          raw += "=" * ((4 - len(raw) % 4) % 4)
+          data = base64.b64decode(raw, validate=False)
+          if not data:
+              raise SystemExit("latest_photo.b64 が空です。")
+          Path("images/latest_photo.jpg").write_bytes(data)
+          print("latest_photo.b64 を画像へ復元しました:", len(data), "bytes")
+          PY
           else
             echo 'Pointウェイブ：有効な料理写真が入力されていません。'
             exit 1
@@ -54,7 +68,7 @@ jobs:
 
       - name: 写真解析・記事生成
         env:
-          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2F6I6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
+          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVwbfrcqZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
           PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           COOKING_IMAGE_FILE: images/latest_photo.jpg
@@ -64,7 +78,7 @@ jobs:
         env:
           RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
           RAKUTEN_PAGES_URL: https://tansinfuninkazu.hatenablog.com/
-          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2F6I6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
+          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbyO9KgF5iFOVwbfrcqZzk5atwQTwkwjmKDtram8yecM2xfxjOGhWxpfUonnctUbx9M/exec
           PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
         run: python article_affiliate_builder.py
 
