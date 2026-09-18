@@ -51,19 +51,12 @@ def _product_score(item, dish_name):
 
 
 def _normalize_item(item):
-    """Rakuten formatVersion=2 may wrap each product in an Item object."""
     if isinstance(item, dict) and isinstance(item.get("Item"), dict):
         return item["Item"]
     return item if isinstance(item, dict) else {}
 
 
 def search_rakuten_via_browser(keywords, hits=10):
-    """Search Rakuten through the GAS-hosted browser page.
-
-    Rakuten credentials are intentionally not fetched into GitHub Actions.
-    The GAS HTML page obtains the credentials from Script Properties and
-    executes the Rakuten JSONP request in the browser context.
-    """
     if not RAKUTEN_GAS_URL:
         raise RuntimeError("RAKUTEN_GAS_URLが設定されていません。")
     if not RAKUTEN_AUTOMATION_SECRET:
@@ -98,16 +91,146 @@ def choose_products(dish_name):
     return products[:3]
 
 
-def _product_link(item, label):
+def _product_category(item):
+    name = str(item.get("itemName", ""))
+    categories = [
+        ("フライパン", ["フライパン", "炒め鍋", "スキレット"]),
+        ("包丁", ["包丁", "ペティナイフ", "三徳"]),
+        ("まな板", ["まな板", "カッティングボード"]),
+        ("鍋", ["鍋", "片手鍋", "両手鍋"]),
+        ("保存容器", ["保存容器", "タッパー", "密閉容器"]),
+        ("調理器具", ["トング", "菜箸", "ヘラ", "キッチンツール", "調理器具"]),
+        ("キッチン用品", ["キッチン"]),
+    ]
+    for category, terms in categories:
+        if any(term in name for term in terms):
+            return category
+    return "キッチン用品"
+
+
+def _natural_anchor(item):
+    """広告らしいCTAではなく、本文中の自然な名詞句として使う。"""
+    category = _product_category(item)
+    name = str(item.get("itemName", "")).strip()
+    short = re.sub(r"[【】\[\]]", "", name)
+    short = re.sub(r"\s+", " ", short).strip()
+    if len(short) > 34:
+        short = short[:34].rstrip(" 、・") + "…"
+
+    # 読者に「押してください」と命令せず、選択肢として見せる。
+    if category == "フライパン":
+        return "フライパン"
+    if category == "包丁":
+        return "包丁"
+    if category == "まな板":
+        return "まな板"
+    if category == "鍋":
+        return "鍋"
+    if category == "保存容器":
+        return "保存容器"
+    if category == "調理器具":
+        return "調理器具"
+    return short or category
+
+
+def _product_link(item):
     url = str(item.get("affiliateUrl") or item.get("itemUrl") or "").strip()
-    name = escape(str(item.get("itemName", "")).strip())
-    if not url or not name:
+    if not url:
         return ""
-    return f'<p><a href="{escape(url, quote=True)}" rel="nofollow sponsored noopener" target="_blank">{escape(label)}</a><br>{name}</p>'
+    anchor = escape(_natural_anchor(item))
+    return (
+        f'<a href="{escape(url, quote=True)}" rel="nofollow sponsored noopener" '
+        f'target="_blank">{anchor}</a>'
+    )
+
+
+def _social_proof_phrase(item):
+    """楽天の商品データに実際に存在する数値だけを使う。捏造しない。"""
+    rating = float(item.get("reviewAverage", 0) or 0)
+    reviews = int(item.get("reviewCount", 0) or 0)
+    if rating >= 4.3 and reviews >= 100:
+        return f"レビューも{reviews:,}件あり、評価は{rating:.1f}でした。"
+    if rating >= 4.3 and reviews >= 30:
+        return f"レビューでも評価が高めだったので、候補に入れました。"
+    return ""
+
+
+def _context_terms(item):
+    category = _product_category(item)
+    mapping = {
+        "フライパン": ["焼", "炒", "火", "脂", "焦", "肉"],
+        "包丁": ["切", "刻", "千切", "材料"],
+        "まな板": ["切", "刻", "材料"],
+        "鍋": ["煮", "茹", "ゆで", "汁"],
+        "保存容器": ["保存", "作り置き", "冷蔵", "残"],
+        "調理器具": ["混ぜ", "炒", "焼", "盛", "調理"],
+        "キッチン用品": ["料理", "自炊", "洗い物", "キッチン"],
+    }
+    return mapping.get(category, mapping["キッチン用品"])
+
+
+def _paragraphs(body):
+    return re.split(r"(</p\s*>|</li\s*>|<br\s*/?>)", body, flags=re.I)
+
+
+def _insert_naturally(body, item, used_positions):
+    """商品を記事末尾へまとめず、意味の近い段落の直後へ1回だけ置く。"""
+    category = _product_category(item)
+    proof = _social_proof_phrase(item)
+    link = _product_link(item)
+    if not link:
+        return body
+
+    parts = _paragraphs(body)
+    terms = _context_terms(item)
+    candidates = []
+    for i, part in enumerate(parts):
+        plain = re.sub(r"<[^>]+>", "", part)
+        if any(term in plain for term in terms):
+            # タイトル直後・見出しだけの場所は避ける。
+            if len(plain.strip()) >= 25 and not re.match(r"^\s*#{1,3}\s", plain):
+                candidates.append(i)
+
+    # 同じ段落に複数リンクを集中させない。
+    target = None
+    for i in candidates:
+        if i not in used_positions:
+            target = i
+            break
+
+    if target is None:
+        # 文脈が見つからない商品は無理に広告化せず、記事の終端近くに短い補足として1件だけ置く。
+        target = next((i for i in range(len(parts) - 1, -1, -1) if len(re.sub(r"<[^>]+>", "", parts[i]).strip()) >= 25), None)
+
+    if target is None:
+        return body
+
+    # 「おすすめ」「チェック」「見てみる」のような広告CTAを避け、
+    # 読者が料理中に自然に思い浮かべる一文にする。
+    if category == "フライパン":
+        sentence = f"こういう料理は、毎日使う{link}の扱いやすさで意外とラクさが変わります。"
+    elif category == "包丁":
+        sentence = f"材料を切るところでは、{link}が扱いやすいかどうかも地味に効いてきます。"
+    elif category == "まな板":
+        sentence = f"切る作業が続くと、{link}の洗いやすさも気になります。"
+    elif category == "鍋":
+        sentence = f"煮たり温めたりする料理なら、{link}も使いやすいものを選びたいところです。"
+    elif category == "保存容器":
+        sentence = f"余った分を取っておくなら、{link}があると後片付けまで少しラクになります。"
+    else:
+        sentence = f"こういう料理を続けるなら、{link}のような道具もあると助かります。"
+
+    if proof:
+        sentence += " " + proof
+
+    # HTML本文の自然な段落として挿入する。
+    insertion = "<p>" + sentence + "</p>"
+    parts.insert(target + 1, insertion)
+    used_positions.add(target + 1)
+    return "".join(parts)
 
 
 def _photo_html(dish_name):
-    """Insert the already-uploaded Hatena Fotolife image into the final HTML."""
     photo_url = find_photo_url()
     if not photo_url:
         print("料理写真URLが見つからないため、画像HTMLは追加しません。")
@@ -125,24 +248,16 @@ def _photo_html(dish_name):
 def build_article(title, body, dish_name):
     photo_html = _photo_html(dish_name)
     products = choose_products(dish_name)
-    labels = [
-        "▶ 仕事終わりの自炊に使いやすい道具を見てみる",
-        "▶ この料理を作るなら、これが気になる",
-        "▶ 毎日の自炊を少し楽にする道具を探す",
-    ]
-    links = []
-    for item, label in zip(products, labels):
-        link = _product_link(item, label)
-        if link:
-            links.append(link)
-    affiliate_html = "\n".join(links)
 
-    # 写真は記事冒頭へ。既存の本文・楽天アフィリエイト導線は変更しない。
     if photo_html:
         body = photo_html + "\n" + body.lstrip()
 
-    if affiliate_html:
-        body = body.rstrip() + "\n\n<h3>今回の料理で使いたい道具</h3>\n" + affiliate_html
+    # 楽天リンクは「商品一覧」化せず、読者がその道具を必要と感じる文脈へ分散。
+    # 1商品1導線を基本とし、最大3商品まで。
+    used_positions = set()
+    for item in products:
+        body = _insert_naturally(body, item, used_positions)
+
     return body
 
 
@@ -153,7 +268,7 @@ def main():
     article = build_article(title, body, dish_name)
     Path("article_final.html").write_text(article, encoding="utf-8")
     print("料理写真を記事へ組み込みました。")
-    print("楽天アフィリエイト商品を記事へ組み込みました。")
+    print("楽天アフィリエイト商品を本文の関連文脈へ自然分散して組み込みました。")
 
 
 if __name__ == "__main__":
