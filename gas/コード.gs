@@ -350,6 +350,15 @@ function KAZU_PINTEREST_OAUTH_CALLBACK_(e) {
   var scopes=data.scope || KAZU_PINTEREST_SCOPES_();
   return HtmlService.createHtmlOutput('<h2>Pinterest認証成功</h2><p>アクセストークンと更新用トークンを安全に保存しました。</p><p>許可された権限：' + String(scopes).replace(/[<>]/g,'') + '</p><p>この画面を閉じてください。</p>');
 }
+function 楽天ブラウザ検索API(keyword,hits) {
+  var data = KAZU_RAKUTEN_SEARCH_(keyword || 'フライパン', hits || 10);
+  return {
+    success: true,
+    count: data.items.length,
+    items: data.items
+  };
+}
+
 function 楽天ブラウザ用アクセスキー取得() {
   return KAZU_RAKUTEN_KEY_();
 }
