@@ -32,17 +32,17 @@ jobs:
       - name: Pinterest用5パターンを生成
         run: python generate_pinterest_pins.py
 
-      - name: Pinterestへ5件を自動投稿
+      - name: Pinterestへ5件を時間分散予約
         env:
           PINTEREST_GAS_URLS: https://script.google.com/macros/s/AKfycbw5WwonV2F6I6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec,https://script.google.com/macros/s/AKfycbx8aKr8B4J2Q_Jv2hFps6Jn8tbZ7EQijylipJEPpMkXO-uu8bLKFuGmc_39izcfVBFs/exec
           PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
         run: python publish_pinterest_via_gas.py
 
-      - name: Pinterest 5投稿成功を確認
+      - name: Pinterest 5件の予約登録成功を確認
         run: |
           test -s pinterest_pins.json
           test -s pinterest_publish_result.json
-          echo "SECOND_STAGE_SUCCESS=true"
+          echo "PINTEREST_SCHEDULE_REGISTERED=true"
           cat pinterest_publish_result.json
 
       - name: 第二段階の成果物を保存
