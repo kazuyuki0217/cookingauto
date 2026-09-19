@@ -1,9 +1,6 @@
 name: Pointカズ｜料理写真→はてな記事投稿（第一段階）
 
 on:
-  push:
-    paths:
-      - 'incoming/latest_photo.trigger'
   workflow_dispatch:
 
 permissions:
