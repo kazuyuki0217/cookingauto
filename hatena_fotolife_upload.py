@@ -60,7 +60,18 @@ def upload_photo(photo_path):
         raise RuntimeError("対応していない画像形式です。JPG/PNG/WebPを使用してください。")
 
     root = ET.Element("entry", {"xmlns": "http://purl.org/atom/ns#"})
-    ET.SubElement(root, "title").text = path.stem
+    photo_id = os.environ.get("COLLECTION_PHOTO_ID", "").strip()
+    if not photo_id:
+        metadata_path = Path("incoming/latest_photo.json")
+        if metadata_path.exists():
+            try:
+                raw = metadata_path.read_text(encoding="utf-8").strip()
+                metadata = __import__("json").loads(base64.b64decode(raw).decode("utf-8"))
+                photo_id = str(metadata.get("photoId", "")).strip()
+            except Exception:
+                photo_id = ""
+    title = f"{path.stem}_{photo_id}" if photo_id else path.stem
+    ET.SubElement(root, "title").text = title
     ET.SubElement(root, "content", {"mode": "base64", "type": mime}).text = base64.b64encode(path.read_bytes()).decode()
     if folder:
         ET.SubElement(root, "subject", {"xmlns": "http://purl.org/dc/elements/1.1/"}).text = folder
