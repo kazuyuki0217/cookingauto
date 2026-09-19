@@ -1,6 +1,9 @@
 name: 料理写真→収益化パイプライン
 
 on:
+  push:
+    paths:
+      - 'incoming/latest_photo.trigger'
   workflow_dispatch:
     inputs:
       image_file:
@@ -45,6 +48,24 @@ jobs:
           else
             echo "COOKING_IMAGE_FILE=" >> "$GITHUB_ENV"
           fi
+
+      - name: 料理名を受信データから読み込む
+        run: |
+          python - <<'PY'
+          import base64, json
+          from pathlib import Path
+          p = Path("incoming/latest_photo.json")
+          if not p.exists():
+              raise SystemExit("incoming/latest_photo.json がありません。")
+          raw = p.read_text(encoding="utf-8").strip()
+          data = json.loads(base64.b64decode(raw).decode("utf-8"))
+          dish = str(data.get("dishName", "")).strip()
+          if not dish:
+              raise SystemExit("incoming/latest_photo.json に料理名がありません。")
+          Path("collection_dish_name.txt").write_text(dish, encoding="utf-8")
+          print("受信料理名:", dish)
+          PY
+          echo "COLLECTION_DISH_NAME=$(cat collection_dish_name.txt)" >> "$GITHUB_ENV"
 
       - name: 料理写真を準備
         run: python upload_cooking_photo.py
