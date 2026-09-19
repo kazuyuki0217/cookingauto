@@ -34,7 +34,7 @@ jobs:
 
       - name: Pinterestへ5件を自動投稿
         env:
-          PINTEREST_GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2F6I6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
+          PINTEREST_GAS_URLS: https://script.google.com/macros/s/AKfycbw5WwonV2F6I6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec,https://script.google.com/macros/s/AKfycbx8aKr8B4J2Q_Jv2hFps6Jn8tbZ7EQijylipJEPpMkXO-uu8bLKFuGmc_39izcfVBFs/exec
           PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
         run: python publish_pinterest_via_gas.py
 
