@@ -1,6 +1,6 @@
 run=2026-09-19T23:10:00+09:00
 source=ポイントオート実写真検証・再実行
-photo=latest_photo.jpg
+photo=豚トロとカイワレのビアハム巻き.jpg
 photoId=PHOTO_9dfb13a3f6241bc0
 dishName=豚トロとカイワレのビアハム巻き
 sha256=801395b310e3fd2d49df91a94ebca71b8fc8e2d8786ce856e2c0d83838084daa
