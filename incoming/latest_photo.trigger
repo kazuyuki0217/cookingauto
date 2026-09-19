@@ -1,5 +1,5 @@
-run=2026-09-19T18:20:00+09:00
-source=チャット写真再投入・実画像SHA照合
+run=2026-09-19T23:10:00+09:00
+source=ポイントオート実写真検証・再実行
 photo=latest_photo.jpg
 photoId=PHOTO_9dfb13a3f6241bc0
 dishName=豚トロとカイワレのビアハム巻き
