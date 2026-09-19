@@ -107,6 +107,7 @@ jobs:
       - name: 料理写真を準備
         env:
           COOKING_IMAGE_FILE: images/latest_photo.jpg
+          COLLECTION_DISH_NAME: ${{ steps.photo_meta.outputs.dish_name }}
         run: python upload_cooking_photo.py
 
       - name: はてなフォトライフへ画像を公開
