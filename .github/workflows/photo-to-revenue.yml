@@ -77,6 +77,15 @@ jobs:
           HATENA_FOTOLIFE_FOLDER: 料理アフィリエイト自動化
         run: python hatena_fotolife_upload.py
 
+      - name: 記事生成前に楽天商品候補を選定
+        env:
+          RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
+          RAKUTEN_PAGES_URL: https://tansinfuninkazu.hatenablog.com/
+          RAKUTEN_GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2F6I6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
+          PINTEREST_GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2F6I6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
+          PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
+        run: python prepare_rakuten_candidates.py
+
       - name: 無料Geminiで料理写真を解析して記事作成
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -129,6 +138,7 @@ jobs:
             hatena_post_url.txt
             pinterest_pins.json
             pinterest_publish_result.json
+            rakuten_candidates.json
 
       - name: Pinterest自動投稿完了確認
         run: echo 'Pinterestへ5件の実投稿まで完了しました。'
