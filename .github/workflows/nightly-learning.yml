@@ -26,16 +26,5 @@ jobs:
       - name: 学習記録生成
         run: python learning/record_learning.py
 
-      - name: 変更確認
-        id: changes
-        run: |
-          git status --short
-
-      - name: 学習結果を保存
-        if: steps.changes.outputs.any_changed == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add learning/
-          git commit -m "ポイントオート: 夜間学習結果を更新" || true
-          git push
+      - name: 学習結果確認
+        run: git status --short
