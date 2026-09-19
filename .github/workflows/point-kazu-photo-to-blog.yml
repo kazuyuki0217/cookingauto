@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: cooking-point-kazu-blog
@@ -21,6 +21,28 @@ jobs:
     steps:
       - name: リポジトリを取得
         uses: actions/checkout@v4
+
+
+      - name: 処理済み写真の二重投稿を防止
+        env:
+          PHOTO_TRIGGER: incoming/latest_photo.trigger
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          trigger = Path("incoming/latest_photo.trigger")
+          if not trigger.exists():
+              raise SystemExit("料理写真トリガーがありません。")
+          text = trigger.read_text(encoding="utf-8")
+          m = re.search(r"^photo=(.+)$", text, re.M)
+          if not m:
+              raise SystemExit("トリガーにphoto=がありません。")
+          photo = m.group(1).strip()
+          state = Path(".point-kazu-processed.txt")
+          if state.exists() and photo in {x.strip() for x in state.read_text(encoding="utf-8").splitlines() if x.strip()}:
+              raise SystemExit(f"既に処理済みの写真です: {photo}")
+          print(f"今回処理する写真: {photo}")
+          PY
 
       - name: 料理写真を入力として確定
         run: |
@@ -112,6 +134,18 @@ jobs:
           echo "FIRST_STAGE_SUCCESS=true"
           echo "はてな投稿URL:"
           cat hatena_post_url.txt
+
+      - name: 処理済み写真を記録
+        run: |
+          photo=$(sed -n 's/^photo=//p' incoming/latest_photo.trigger | head -n1)
+          test -n "$photo"
+          touch .point-kazu-processed.txt
+          grep -Fxq "$photo" .point-kazu-processed.txt || echo "$photo" >> .point-kazu-processed.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .point-kazu-processed.txt
+          git diff --cached --quiet || git commit -m "Pointウェイブ: 処理済み料理写真を記録"
+          git push
 
       - name: 第一段階の成果物を保存
         uses: actions/upload-artifact@v4
