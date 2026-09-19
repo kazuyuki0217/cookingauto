@@ -66,6 +66,8 @@ jobs:
           print("受信料理名:", dish)
           PY
           echo "COLLECTION_DISH_NAME=$(cat collection_dish_name.txt)" >> "$GITHUB_ENV"
+          PHOTO_ID=$(python -c 'import base64,json; from pathlib import Path; d=json.loads(base64.b64decode(Path("incoming/latest_photo.json").read_text(encoding="utf-8").strip()).decode("utf-8")); print(str(d.get("photoId","")).strip())')
+          echo "COLLECTION_PHOTO_ID=$PHOTO_ID" >> "$GITHUB_ENV"
 
       - name: 料理写真を準備
         run: python upload_cooking_photo.py
