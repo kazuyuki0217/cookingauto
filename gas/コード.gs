@@ -347,6 +347,8 @@ function doGet(e) {
   // 楽天ブラウザ橋渡しはテンプレート評価が必要。
   // createHtmlOutputFromFile() では <?!= configJson ?> が評価されず、
   // ブラウザ側が「楽天APIへ接続中...」のまま停止する。
+  if (action === 'collection_register') return HtmlService.createHtmlOutputFromFile('料理写真登録').setTitle('料理写真コレクション登録');
+
   var template = HtmlService.createTemplateFromFile('RakutenBrowserBridge');
   template.configJson = encodeURIComponent(JSON.stringify({
     applicationId: KAZU_RAKUTEN_APP_ID_(),
