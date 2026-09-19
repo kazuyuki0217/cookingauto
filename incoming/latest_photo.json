@@ -1,1 +1,11 @@
-eyJwaG90b0lkIjoiUEhPVE9fOWRmYjEzYTNmNjI0MWJjMCIsInBob3RvRmlsZSI6ImxhdGVzdF9waG90by5qcGciLCJkaXNoTmFtZSI6IuixmuODiOODreOBqOOCq+OCpOODr+ODrOOBruODk+OCouODj+ODoOW3u+OBjSIsIm1pbWVUeXBlIjoiaW1hZ2UvanBlZyIsImJ5dGVzIjozNDc4MDUsInNoYTI1NiI6IjlkZmIxM2EzZjYyNDFiYzA5N2M5ZmQ4ZTMyMjNmMjg5OGQyOWU3NDY2ZTcyNTNjMzIzYjlhZGI5MjgyMzQwNjYiLCJjcmVhdGVkQXQiOiIyMDI2LTA5LTE5VDE4OjAwOjAwKzA5OjAwIiwic291cmNlIjoi44OB44Oj44OD44OI5YaZ55yf44GL44KJ44Gu5a6f5YaZ55yf5YaN5oqV5YWlIn0=
+{
+  "photoId": "PHOTO_9dfb13a3f6241bc0",
+  "photoFile": "latest_photo.jpg",
+  "dishName": "豚トロとカイワレのビアハム巻き",
+  "mimeType": "image/jpeg",
+  "bytes": 13345,
+  "sha256": "801395b310e3fd2d49df91a94ebca71b8fc8e2d8786ce856e2c0d83838084daa",
+  "sourceSha256": "9dfb13a3f6241bc097c9fd8e3223f2898d29e7466e7253c323b9adb928234066",
+  "createdAt": "2026-09-19T18:00:00+09:00",
+  "source": "チャット写真からの実写真を自動縮小・検証済み"
+}
