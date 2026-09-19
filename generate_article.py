@@ -20,6 +20,11 @@ def find_image():
         p = Path(explicit)
         if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS:
             return p
+    # 料理写真コレクションから復元した最新写真を最優先する。
+    # images/ に過去写真が残っていても、古い写真を誤って記事生成に使わない。
+    latest = Path("images") / "latest_photo.jpg"
+    if latest.is_file() and latest.stat().st_size > 1024:
+        return latest
     candidates = []
     for root in (Path("images"), Path(".")):
         if root.exists():
