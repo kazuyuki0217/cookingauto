@@ -28,7 +28,7 @@ pins = json.loads(pins_path.read_text(encoding='utf-8'))
 if not isinstance(pins, list) or len(pins) != 5:
     raise RuntimeError(f'Pinterest投稿データは5件必要です。現在: {len(pins) if isinstance(pins, list) else "不正"}件')
 
-payload = {'secret': secret, 'pins': pins}
+payload = {'secret': secret, 'service': 'pinterest_schedule', 'pins': pins}
 response = None
 last_error = None
 
@@ -60,7 +60,10 @@ if not result.get('success'):
 
 count = int(result.get('count', 0))
 if count != 5:
-    raise RuntimeError(f'Pinterest投稿件数が5件ではありません。実績: {count}件')
+    raise RuntimeError(f'Pinterest予約件数が5件ではありません。実績: {count}件')
+scheduled_count = int(result.get('scheduledCount', 0))
+if scheduled_count != 5:
+    raise RuntimeError(f'Pinterest予約対象が5件ではありません。実績: {scheduled_count}件')
 
 Path('pinterest_publish_result.json').write_text(
     json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8'
