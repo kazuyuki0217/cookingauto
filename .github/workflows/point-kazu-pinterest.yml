@@ -1,0 +1,54 @@
+name: Pointカズ｜はてな成功後Pinterest 5投稿（第二段階）
+
+on:
+  workflow_run:
+    workflows: ["Pointカズ｜料理写真→はてな記事投稿（第一段階）"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: cooking-point-kazu-pinterest
+  cancel-in-progress: false
+
+jobs:
+  pinterest:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: 第一段階の成果物を取得
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pattern: point-kazu-blog-*
+          merge-multiple: true
+
+      - name: Pinterest用5パターンを生成
+        run: python generate_pinterest_pins.py
+
+      - name: Pinterestへ5件を自動投稿
+        env:
+          PINTEREST_GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2F6I6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
+          PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
+        run: python publish_pinterest_via_gas.py
+
+      - name: Pinterest 5投稿成功を確認
+        run: |
+          test -s pinterest_pins.json
+          test -s pinterest_publish_result.json
+          echo "SECOND_STAGE_SUCCESS=true"
+          cat pinterest_publish_result.json
+
+      - name: 第二段階の成果物を保存
+        uses: actions/upload-artifact@v4
+        with:
+          name: point-kazu-pinterest-${{ github.run_number }}
+          path: |
+            pinterest_pins.json
+            pinterest_publish_result.json
