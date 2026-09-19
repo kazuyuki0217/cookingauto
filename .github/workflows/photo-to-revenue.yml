@@ -58,7 +58,11 @@ jobs:
           if not p.exists():
               raise SystemExit("incoming/latest_photo.json がありません。")
           raw = p.read_text(encoding="utf-8").strip()
-          data = json.loads(base64.b64decode(raw).decode("utf-8"))
+          try:
+              decoded = base64.b64decode(raw).decode("utf-8")
+              data = json.loads(decoded)
+          except Exception:
+              data = json.loads(raw)
           dish = str(data.get("dishName", "")).strip()
           if not dish:
               raise SystemExit("incoming/latest_photo.json に料理名がありません。")
@@ -66,7 +70,7 @@ jobs:
           print("受信料理名:", dish)
           PY
           echo "COLLECTION_DISH_NAME=$(cat collection_dish_name.txt)" >> "$GITHUB_ENV"
-          PHOTO_ID=$(python -c 'import base64,json; from pathlib import Path; d=json.loads(base64.b64decode(Path("incoming/latest_photo.json").read_text(encoding="utf-8").strip()).decode("utf-8")); print(str(d.get("photoId","")).strip())')
+          PHOTO_ID=$(python -c 'import base64,json; from pathlib import Path; raw=Path("incoming/latest_photo.json").read_text(encoding="utf-8").strip(); d=json.loads(raw) if raw.startswith("{") else json.loads(base64.b64decode(raw).decode("utf-8")); print(str(d.get("photoId","")).strip())')
           echo "COLLECTION_PHOTO_ID=$PHOTO_ID" >> "$GITHUB_ENV"
 
       - name: 料理写真を準備
