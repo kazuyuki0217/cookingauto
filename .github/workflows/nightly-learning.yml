@@ -1,0 +1,41 @@
+name: ポイントオート 夜間学習
+
+on:
+  schedule:
+    - cron: "20 17 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  nightly-learning:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリ取得
+        uses: actions/checkout@v4
+
+      - name: Pythonセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 夜間情報収集
+        run: python learning/nightly_research.py
+
+      - name: 学習記録生成
+        run: python learning/record_learning.py
+
+      - name: 変更確認
+        id: changes
+        run: |
+          git status --short
+
+      - name: 学習結果を保存
+        if: steps.changes.outputs.any_changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add learning/
+          git commit -m "ポイントオート: 夜間学習結果を更新" || true
+          git push
