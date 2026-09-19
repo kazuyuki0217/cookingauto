@@ -42,3 +42,13 @@ function 楽天ブラウザ検索結果取得() {
   try { return JSON.parse(text); }
   catch (e) { return {success:false,count:0,items:[]}; }
 }
+
+
+function 楽天ブラウザ検索設定取得() {
+  var p = PropertiesService.getScriptProperties();
+  return {
+    applicationId: String(p.getProperty('RAKUTEN_APP_ID') || '').trim(),
+    accessKey: String(p.getProperty('RAKUTEN_ACCESS_KEY') || '').trim(),
+    affiliateId: String(p.getProperty('RAKUTEN_AFFILIATE_ID') || '').trim()
+  };
+}
