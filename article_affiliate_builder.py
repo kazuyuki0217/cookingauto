@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from html import escape
@@ -70,6 +71,16 @@ def search_rakuten_via_browser(keywords, hits=10):
 
 
 def choose_products(dish_name):
+    cached = Path("rakuten_candidates.json")
+    if cached.exists():
+        try:
+            data = json.loads(cached.read_text(encoding="utf-8"))
+            candidates = data.get("candidates", [])
+            if candidates:
+                return [dict(item) for item in candidates[:3]]
+        except Exception:
+            pass
+
     keywords = [
         f"{dish_name} フライパン",
         f"{dish_name} 調理器具",
