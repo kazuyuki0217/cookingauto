@@ -134,6 +134,11 @@ function doPost(e) {
       return KAZU_RAKUTEN_AUTOMATION_(body);
     }
 
+    // 5件を即時連続投稿せず、GASの時間主導トリガーで分散予約する。
+    if (body.service === 'pinterest_schedule') {
+      return KAZU_PINTEREST_SCHEDULE_(body.pins);
+    }
+
     var pins = body.pins;
     if (!Array.isArray(pins) || pins.length !== 5) {
       return KAZU_PINTEREST_AUTOMATION_JSON_(false, {
@@ -184,3 +189,45 @@ function Pinterest自動投稿ブリッジ設定確認() {
     pinterestBoardId: props.PINTEREST_BOARD_ID || '未登録'
   };
 }
+
+
+/* ================= Pinterest 5件分散予約投稿 ================= */
+function KAZU_PINTEREST_SCHEDULE_(pins) {
+  if (!Array.isArray(pins) || pins.length !== 5) return KAZU_PINTEREST_AUTOMATION_JSON_(false, {error:'Pinterest予約投稿データは5件必要です。',count:Array.isArray(pins)?pins.length:0});
+  var existing=KAZU_PINTEREST_EXISTING_PIN_KEYS_();
+  var targets=['07:00','11:30','15:00','18:30','21:30'];
+  var jstNow=new Date(new Date().getTime()+9*60*60*1000);
+  var y=jstNow.getUTCFullYear(), m=jstNow.getUTCMonth(), d=jstNow.getUTCDate()+1;
+  var queue=[];
+  for(var i=0;i<5;i++){
+    var pin=pins[i]||{};
+    if(!pin.imageUrl||!pin.title||!pin.link) return KAZU_PINTEREST_AUTOMATION_JSON_(false,{error:'Pin '+(i+1)+' にimageUrl/title/linkのいずれかがありません。'});
+    var key=String(pin.title).trim()+'\\n'+String(pin.link).trim();
+    var parts=targets[i].split(':');
+    var scheduledAt=new Date(Date.UTC(y,m,d,Number(parts[0])-9,Number(parts[1]),0,0));
+    queue.push({index:i+1,pin:pin,scheduledAt:scheduledAt.toISOString(),status:existing[key]?'success':'pending',id:existing[key]||'',attempts:0});
+  }
+  var props=PropertiesService.getScriptProperties();
+  props.setProperty('PINTEREST_SCHEDULE_QUEUE',JSON.stringify({createdAt:new Date().toISOString(),queue:queue,successCount:queue.filter(function(x){return x.status==='success';}).length}));
+  ScriptApp.getProjectTriggers().forEach(function(t){if(t.getHandlerFunction()==='KAZU_PINTEREST_SCHEDULE_WORKER_') ScriptApp.deleteTrigger(t);});
+  queue.forEach(function(item){if(item.status==='pending') ScriptApp.newTrigger('KAZU_PINTEREST_SCHEDULE_WORKER_').timeBased().at(new Date(item.scheduledAt)).create();});
+  return KAZU_PINTEREST_AUTOMATION_JSON_(true,{service:'pinterest_schedule',count:5,scheduledCount:queue.filter(function(x){return x.status==='pending';}).length,schedule:targets,scheduledFor:y+'-'+('0'+(m+1)).slice(-2)+'-'+('0'+d).slice(-2)});
+}
+function KAZU_PINTEREST_SCHEDULE_WORKER_(){
+  var lock=LockService.getScriptLock(); if(!lock.tryLock(30000)) return;
+  try{
+    var props=PropertiesService.getScriptProperties(),raw=props.getProperty('PINTEREST_SCHEDULE_QUEUE'); if(!raw)return;
+    var data=JSON.parse(raw),queue=data.queue||[],now=Date.now(),target=null;
+    for(var i=0;i<queue.length;i++){if(queue[i].status==='pending'&&new Date(queue[i].scheduledAt).getTime()<=now+10*60*1000){target=queue[i];break;}}
+    if(!target)return;
+    target.attempts=Number(target.attempts||0)+1;
+    try{
+      var existing=KAZU_PINTEREST_EXISTING_PIN_KEYS_(),key=String(target.pin.title).trim()+'\\n'+String(target.pin.link).trim();
+      if(existing[key]){target.id=existing[key];target.status='success';}
+      else{var result=PinterestPin作成(String(target.pin.imageUrl),String(target.pin.title),String(target.pin.description||''),String(target.pin.link));target.id=result&&result.id?String(result.id):'';target.status=target.id?'success':'pending';}
+      target.completedAt=new Date().toISOString();
+    }catch(error){target.status='pending';target.lastError=String(error&&error.message?error.message:error);ScriptApp.newTrigger('KAZU_PINTEREST_SCHEDULE_WORKER_').timeBased().at(new Date(Date.now()+10*60*1000)).create();}
+    data.queue=queue;data.updatedAt=new Date().toISOString();data.successCount=queue.filter(function(x){return x.status==='success';}).length;props.setProperty('PINTEREST_SCHEDULE_QUEUE',JSON.stringify(data));
+  }finally{lock.releaseLock();}
+}
+function Pinterest5件予約状態(){var raw=PropertiesService.getScriptProperties().getProperty('PINTEREST_SCHEDULE_QUEUE');if(!raw)return{success:false,count:0,message:'予約データなし'};try{var data=JSON.parse(raw);return{success:true,count:(data.queue||[]).length,successCount:data.successCount||0,queue:data.queue||[],createdAt:data.createdAt||'',updatedAt:data.updatedAt||''};}catch(e){return{success:false,count:0,message:'予約データJSONエラー'};}}
