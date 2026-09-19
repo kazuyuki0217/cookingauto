@@ -54,7 +54,8 @@ function runGitHubSmartSync() {
     var changedPinterest = syncOneGitHubFile_(c, files, 'gas/PinterestAutomationBridge.gs', 'PinterestAutomationBridge', 'SERVER_JS', 'Pinterest自動化ブリッジ');
     var changedCloudArticle = syncOneGitHubFile_(c, files, 'gas/CloudArticleGenerator.gs', 'CloudArticleGenerator', 'SERVER_JS', 'Cloud記事生成エンジン');
     var changedPhotoBridge = syncOneGitHubFile_(c, files, 'gas/PointKazuDriveBridge.gs', 'PointKazuDriveBridge', 'SERVER_JS', '料理写真コレクション連携');
-    if (!changedMain && !changedBrowser && !changedSandbox && !changedStandardDemo && !changedArticle && !changedRakuten && !changedPinterest && !changedCloudArticle && !changedPhotoBridge) return '同期不要：GitHubとGASは最新状態です。';
+    var changedPhotoRegister = syncOneGitHubFile_(c, files, 'gas/料理写真登録.html', '料理写真登録', 'HTML', '料理写真登録画面');
+    if (!changedMain && !changedBrowser && !changedSandbox && !changedStandardDemo && !changedArticle && !changedRakuten && !changedPinterest && !changedCloudArticle && !changedPhotoBridge && !changedPhotoRegister) return '同期不要：GitHubとGASは最新状態です。';
     var scriptId = ScriptApp.getScriptId();
     var url = 'https://script.googleapis.com/v1/projects/' + encodeURIComponent(scriptId) + '/content';
     var res = UrlFetchApp.fetch(url, {method:'put',contentType:'application/json',headers:{Authorization:'Bearer '+ScriptApp.getOAuthToken()},payload:JSON.stringify({files:files}),muteHttpExceptions:true});
