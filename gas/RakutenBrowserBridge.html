@@ -15,7 +15,7 @@ var startedAt=Date.now();
 function show(s){resultEl.textContent=s;}
 try{
   show('診断① HTML読み込み成功\n診断② configJson評価開始...');
-  var config=<?!= configJson ?>;
+  var config=JSON.parse(decodeURIComponent('<?!= configJson ?>'));
   show('診断① HTML読み込み成功\n診断② configJson評価成功\n診断③ searchRakuten開始...');
   start();
 }catch(e){
