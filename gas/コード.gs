@@ -348,6 +348,7 @@ function doGet(e) {
   // createHtmlOutputFromFile() では <?!= configJson ?> が評価されず、
   // ブラウザ側が「楽天APIへ接続中...」のまま停止する。
   if (action === 'collection_register') return HtmlService.createHtmlOutputFromFile('料理写真登録').setTitle('料理写真コレクション登録');
+  if (action === 'pinterest_schedule_status') return ContentService.createTextOutput(JSON.stringify(Pinterest5件予約状態())).setMimeType(ContentService.MimeType.JSON);
 
   var template = HtmlService.createTemplateFromFile('RakutenBrowserBridge');
   template.configJson = encodeURIComponent(JSON.stringify({
