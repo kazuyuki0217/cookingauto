@@ -12,7 +12,13 @@ def required_env(name: str) -> str:
     return value
 
 
-gas_url = required_env('PINTEREST_GAS_URL')
+# 旧デプロイURLが残っている環境もあるため、404のときだけ次候補へ切り替える。
+gas_urls_raw = os.environ.get('PINTEREST_GAS_URLS', '').strip()
+if gas_urls_raw:
+    gas_urls = [u.strip() for u in gas_urls_raw.split(',') if u.strip()]
+else:
+    gas_urls = [required_env('PINTEREST_GAS_URL')]
+
 secret = required_env('PINTEREST_AUTOMATION_SECRET')
 pins_path = Path('pinterest_pins.json')
 if not pins_path.exists():
@@ -23,8 +29,26 @@ if not isinstance(pins, list) or len(pins) != 5:
     raise RuntimeError(f'Pinterest投稿データは5件必要です。現在: {len(pins) if isinstance(pins, list) else "不正"}件')
 
 payload = {'secret': secret, 'pins': pins}
-response = requests.post(gas_url, json=payload, timeout=120)
-response.raise_for_status()
+response = None
+last_error = None
+
+for gas_url in gas_urls:
+    print(f'GAS接続先を確認: {gas_url}')
+    try:
+        candidate = requests.post(gas_url, json=payload, timeout=120)
+        if candidate.status_code == 404:
+            print('HTTP 404。次のGASデプロイ候補へ切り替えます。')
+            last_error = f'HTTP 404: {gas_url}'
+            continue
+        candidate.raise_for_status()
+        response = candidate
+        break
+    except requests.RequestException as exc:
+        last_error = str(exc)
+        raise RuntimeError(f'GASへの接続に失敗しました: {exc}')
+
+if response is None:
+    raise RuntimeError(f'有効なGAS WebアプリURLが見つかりません。最後の結果: {last_error}')
 
 try:
     result = response.json()
