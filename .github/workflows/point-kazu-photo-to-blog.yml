@@ -1,4 +1,4 @@
-name: Pointカズ｜ここに貼った料理写真→ポイントウェイブ自動投稿
+name: Pointカズ｜料理写真→はてな記事投稿（第一段階）
 
 on:
   push:
@@ -11,11 +11,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: cooking-point-kazu
+  group: cooking-point-kazu-blog
   cancel-in-progress: false
 
 jobs:
-  point-kazu:
+  point-kazu-blog:
     runs-on: ubuntu-latest
     steps:
       - name: リポジトリを取得
@@ -104,19 +104,18 @@ jobs:
           import post_to_hatena
           PY
 
-      - name: Pinterest用5パターンを生成
-        run: python generate_pinterest_pins.py
+      - name: はてな投稿成功を確認
+        run: |
+          test -s article_final.html
+          test -s hatena_post_url.txt
+          echo "FIRST_STAGE_SUCCESS=true"
+          echo "はてな投稿URL:"
+          cat hatena_post_url.txt
 
-      - name: Pinterestへ5件を自動投稿
-        env:
-          PINTEREST_GAS_URL: https://script.google.com/macros/s/AKfycbw5WwonV2F6I6FvHHZo3-PqkuPx0BH71qCsz_qkKFcVaiHzTzE80FGpvoEkeJbfQYzAL/exec
-          PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
-        run: python publish_pinterest_via_gas.py
-
-      - name: 成果物を保存
+      - name: 第一段階の成果物を保存
         uses: actions/upload-artifact@v4
         with:
-          name: point-kazu-wave-${{ github.run_number }}
+          name: point-kazu-blog-${{ github.run_number }}
           path: |
             article_title.txt
             dish_name.txt
@@ -124,13 +123,3 @@ jobs:
             article_final.html
             cooking_image_url.txt
             hatena_post_url.txt
-            pinterest_pins.json
-            pinterest_publish_result.json
-
-      - name: Pointウェイブ完了確認
-        run: |
-          test -s article_final.html
-          test -s hatena_post_url.txt
-          test -s pinterest_pins.json
-          test -s pinterest_publish_result.json
-          echo 'Pointウェイブ：料理写真→Gemini写真解析→Claude風記事→楽天アフィリエイト自然分散→写真付きはてな→5パターンPinterest投稿まで完了。'
