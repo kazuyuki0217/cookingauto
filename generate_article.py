@@ -70,6 +70,19 @@ def build_prompt():
         if official_dish else ""
     )
     product_context = _load_product_context()
+    strategy_context = ""
+    strategy_path = Path("learning/next_strategy.json")
+    if strategy_path.exists():
+        try:
+            strategy = json.loads(strategy_path.read_text(encoding="utf-8"))
+            strategy_context = "\n".join([
+                "夜間学習エンジンから今回の記事生成へ渡された実験条件です。",
+                f"原則: {strategy.get(\"principles\", [])}",
+                f"今回の実験: {strategy.get(\"currentExperiment\", {})}",
+                f"生成ルール: {strategy.get(\"rules\", [])}",
+            ])
+        except Exception:
+            strategy_context = ""
     return f"""
 この料理写真を最優先して分析し、「51歳ホームセンター店員の単身赴任生活」の記事を作成してください。
 {dish_hint}
