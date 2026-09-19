@@ -350,8 +350,9 @@ function doGet(e) {
   if (action === 'collection_register') return HtmlService.createHtmlOutputFromFile('料理写真登録').setTitle('料理写真コレクション登録');
   if (action === 'photo_drive') {
     try {
+      var setupMessage = PointKazuDriveSetup();
       var folderUrl = PointKazuDriveTest();
-      return HtmlService.createHtmlOutput('<h2>ポイントレシピ投入</h2><p>このフォルダに料理写真を1枚入れてください。</p><p><a href="' + folderUrl.replace(/"/g,'&quot;') + '" target="_top">Google Driveの投入フォルダを開く</a></p>');
+      return HtmlService.createHtmlOutput('<h2>ポイントレシピ投入</h2><p>毎日、料理写真を1枚入れるだけです。</p><p><b>ファイル名＝料理名</b>にしてください。</p><p>例：豚トロとカイワレのビアハム巻き.jpg</p><p>5分ごとに自動確認し、写真・料理名を収益化パイプラインへ送ります。</p><p><a href="' + folderUrl.replace(/"/g,'&quot;') + '" target="_top">投入フォルダを開く</a></p><p style="font-size:12px">' + String(setupMessage).replace(/[<>]/g,'') + '</p>');
     } catch (driveErr) {
       return HtmlService.createHtmlOutput('<h2>投入フォルダ準備エラー</h2><pre>' + String(driveErr && driveErr.message ? driveErr.message : driveErr).replace(/[<>]/g,'') + '</pre>');
     }
