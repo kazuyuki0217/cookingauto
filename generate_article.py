@@ -42,8 +42,14 @@ def mime_type(path):
 
 
 def build_prompt():
-    return """
+    official_dish = os.environ.get("COLLECTION_DISH_NAME", "").strip()
+    dish_hint = (
+        f"今回の料理名は「{official_dish}」です。記事ではこの料理名を基本名称として扱ってください。"
+        if official_dish else ""
+    )
+    return f"""
 この料理写真を最優先して分析し、「51歳ホームセンター店員の単身赴任生活」の記事を作成してください。
+{dish_hint}
 読者は、一人暮らし・単身赴任で仕事終わりに自炊する日本語読者です。
 写真から確実に分からない材料・分量・調理工程は断定せず、「写真からは判断できない」と明記してください。
 AIが実際に食べたような表現は禁止です。
@@ -165,6 +171,9 @@ def parse_article(text):
 image_path = find_image()
 text = call_gemini(image_path)
 title, dish_name, body = parse_article(text)
+official_dish = os.environ.get("COLLECTION_DISH_NAME", "").strip()
+if official_dish:
+    dish_name = official_dish
 Path("article_title.txt").write_text(title, encoding="utf-8")
 Path("dish_name.txt").write_text(dish_name, encoding="utf-8")
 Path("article_body.txt").write_text(body, encoding="utf-8")
