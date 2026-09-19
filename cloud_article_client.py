@@ -60,13 +60,15 @@ def generate_with_gemini(api_key, image_base64, mime, dish_name):
             if not generated:
                 last_error = "Gemini APIから本文が返りませんでした。"
                 continue
+            if generated.lstrip().upper().startswith("MISMATCH:"):
+                raise RuntimeError("写真と登録料理名が一致しないため、投稿を中止しました。")
             title_match = re.search(r"(?:^|\n)TITLE:\s*(.+)", generated, re.I)
             dish_match = re.search(r"(?:^|\n)DISH_NAME:\s*(.+)", generated, re.I)
             title = title_match.group(1).strip() if title_match else "今日の一人ごはん"
-            dish_name = dish_match.group(1).strip() if dish_match else title
+            generated_dish_name = dish_match.group(1).strip() if dish_match else ""
             body = re.sub(r"(?:^|\n)TITLE:\s*.+", "", generated, count=1, flags=re.I)
             body = re.sub(r"(?:^|\n)DISH_NAME:\s*.+", "", body, count=1, flags=re.I).strip()
-            return title, dish_name, body
+            return title, generated_dish_name, body
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
             last_error = f"Gemini {model} HTTP {exc.code}: {detail[:700]}"
@@ -92,7 +94,6 @@ def main():
         mime_type(image_path), dish_name)
     if generated_dish_name and generated_dish_name != title and generated_dish_name != dish_name:
         print("Geminiが返した料理名:", generated_dish_name)
-    dish_name = dish_name
     if not title or not body:
         raise RuntimeError("Geminiからタイトルまたは本文を取得できませんでした。")
     Path("article_title.txt").write_text(title, encoding="utf-8")
