@@ -41,15 +41,53 @@ def mime_type(path):
     }.get(path.suffix.lower(), "image/jpeg")
 
 
+def _load_product_context():
+    path = Path("rakuten_candidates.json")
+    if not path.exists():
+        return "商品候補データはまだありません。商品を無理に具体化せず、料理上の道具ニーズだけ自然に示してください。"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return "商品候補データを読み込めませんでした。商品を無理に具体化せず、料理上の道具ニーズだけ自然に示してください。"
+
+    lines = ["記事内の購入導線を設計するための楽天商品候補です。URLそのものは本文へ書かないでください。"]
+    for item in data.get("candidates", [])[:3]:
+        name = str(item.get("itemName", "")).strip()
+        category = str(item.get("category", "")).strip()
+        rating = item.get("reviewAverage")
+        reviews = item.get("reviewCount")
+        price = item.get("itemPrice")
+        if not name:
+            continue
+        lines.append(f"- {category}: {name} / 評価={rating} / レビュー数={reviews} / 価格={price}")
+    return "\n".join(lines)
+
+
 def build_prompt():
     official_dish = os.environ.get("COLLECTION_DISH_NAME", "").strip()
     dish_hint = (
         f"今回の料理名は「{official_dish}」です。記事ではこの料理名を基本名称として扱ってください。"
         if official_dish else ""
     )
+    product_context = _load_product_context()
     return f"""
 この料理写真を最優先して分析し、「51歳ホームセンター店員の単身赴任生活」の記事を作成してください。
 {dish_hint}
+{product_context}
+
+今回の目的は、広告を後付けすることではありません。
+読者が写真を見て「自分も作れそう」と感じ、本文を読んで「ここが面倒」「ここをラクにしたい」と自分の問題を認識し、その問題を解決する道具として関連商品に興味を持てる文章設計にしてください。
+ただし、煽り・誇張・偽の口コミ・偽の希少性・購入の強要は禁止です。
+
+行動原理として特に重視すること:
+- 自分との類似性: 一人暮らし・単身赴任・仕事終わりという具体的な生活場面を使い、「自分にもできそう」と想像しやすくする。
+- 認知負荷の低減: 材料・工程・道具の役割を整理し、読むだけで次の行動が分かるようにする。
+- 問題→解決の自然な因果: 「面倒だから、この道具が必要」という順番を守り、商品名から売り込まない。
+- 社会的証拠: 商品候補に実在する評価・レビュー数がある場合だけ、控えめに利用する。
+- 選択肢過多の回避: 商品候補を大量に並べず、料理との関連性が高い少数に絞る。
+- 将来の後悔を減らす: 購入を急がせるのではなく、「この料理を続けるなら、こういう機能が役立つ」と判断材料を渡す。
+- 主体性: 最後は読者自身が「自分に必要か」を判断できる書き方にする。
+
 読者は、一人暮らし・単身赴任で仕事終わりに自炊する日本語読者です。
 写真から確実に分からない材料・分量・調理工程は断定せず、「写真からは判断できない」と明記してください。
 AIが実際に食べたような表現は禁止です。
@@ -60,6 +98,7 @@ AIが実際に食べたような表現は禁止です。
 3行目以降: はてなブログにそのまま使えるHTML本文
 
 本文には、写真から分かる料理の特徴、材料、作り方、仕事終わり向けの時短・節約ポイント、失敗しにくいポイント、料理と相性の良いキッチン用品紹介、まとめを含めてください。
+商品紹介は「おすすめです」の羅列ではなく、料理中の具体的な困りごと→必要な機能→候補商品の順番で自然につなげてください。
 不明な材料や分量は推測で断定しないでください。宣伝臭を強くせず、実際の単身赴任生活の記事らしい文章にしてください。
 """.strip()
 
