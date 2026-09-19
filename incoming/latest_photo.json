@@ -3,9 +3,9 @@
   "photoFile": "豚トロとカイワレのビアハム巻き.jpg",
   "dishName": "豚トロとカイワレのビアハム巻き",
   "mimeType": "image/jpeg",
-  "bytes": 13345,
-  "sha256": "801395b310e3fd2d49df91a94ebca71b8fc8e2d8786ce856e2c0d83838084daa",
+  "bytes": 25180,
+  "sha256": "9f54761d7c31ed7486bd9264fcb376ca0d8f5ecc0224fd61188057acf5bb2ba1",
   "sourceSha256": "9dfb13a3f6241bc097c9fd8e3223f2898d29e7466e7253c323b9adb928234066",
   "createdAt": "2026-09-19T18:00:00+09:00",
-  "source": "チャット写真からの実写真を自動縮小・検証済み"
+  "source": "チャット実写真を400px幅へ正規化"
 }
