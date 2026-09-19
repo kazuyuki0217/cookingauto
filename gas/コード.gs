@@ -348,6 +348,14 @@ function doGet(e) {
   // createHtmlOutputFromFile() では <?!= configJson ?> が評価されず、
   // ブラウザ側が「楽天APIへ接続中...」のまま停止する。
   if (action === 'collection_register') return HtmlService.createHtmlOutputFromFile('料理写真登録').setTitle('料理写真コレクション登録');
+  if (action === 'photo_drive') {
+    try {
+      var folderUrl = PointKazuDriveTest();
+      return HtmlService.createHtmlOutput('<h2>ポイントレシピ投入</h2><p>このフォルダに料理写真を1枚入れてください。</p><p><a href="' + folderUrl.replace(/"/g,'&quot;') + '" target="_top">Google Driveの投入フォルダを開く</a></p>');
+    } catch (driveErr) {
+      return HtmlService.createHtmlOutput('<h2>投入フォルダ準備エラー</h2><pre>' + String(driveErr && driveErr.message ? driveErr.message : driveErr).replace(/[<>]/g,'') + '</pre>');
+    }
+  }
   if (action === 'pinterest_schedule_status') return ContentService.createTextOutput(JSON.stringify(Pinterest5件予約状態())).setMimeType(ContentService.MimeType.JSON);
 
   var template = HtmlService.createTemplateFromFile('RakutenBrowserBridge');
