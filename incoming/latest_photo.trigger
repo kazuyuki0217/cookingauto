@@ -1,5 +1,6 @@
-run=2026-09-19T18:00:00+09:00
-source=チャット写真再投入
+run=2026-09-19T18:20:00+09:00
+source=チャット写真再投入・実画像SHA照合
 photo=latest_photo.jpg
-photoId=PHOTO_POINT_RECIPE_20260919_REAL
+photoId=PHOTO_9dfb13a3f6241bc0
 dishName=豚トロとカイワレのビアハム巻き
+sha256=9dfb13a3f6241bc097c9fd8e3223f2898d29e7466e7253c323b9adb928234066
