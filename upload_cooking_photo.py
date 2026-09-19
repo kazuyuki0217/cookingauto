@@ -28,6 +28,10 @@ def find_input_photo():
                 raw = raw.split(",", 1)[1]
             raw = "".join(raw.split())
             try:
+                # GitHub投入時に末尾のBase64パディングが重複する場合があるため正規化する。
+                # 画像本体は変更せず、末尾の余分な「=」だけを除去してから必要な分を補う。
+                raw = raw.rstrip("=")
+                raw += "=" * ((4 - len(raw) % 4) % 4)
                 image_bytes = base64.b64decode(raw, validate=True)
             except Exception as exc:
                 raise RuntimeError("incoming/latest_photo.b64 の画像データを復元できません。") from exc
