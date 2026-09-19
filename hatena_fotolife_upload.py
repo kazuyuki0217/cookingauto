@@ -30,6 +30,10 @@ def find_photo():
     explicit = os.environ.get("COOKING_IMAGE_FILE", "").strip()
     if explicit and Path(explicit).is_file():
         return Path(explicit)
+    # 記事生成と同じく、今回復元した最新写真を最優先する。
+    latest = Path("images") / "latest_photo.jpg"
+    if latest.is_file() and latest.stat().st_size > 1024:
+        return latest
     candidates = []
     for root in (Path("images"), Path(".")):
         if root.exists():
