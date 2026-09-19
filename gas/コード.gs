@@ -348,13 +348,13 @@ function doGet(e) {
   // createHtmlOutputFromFile() では <?!= configJson ?> が評価されず、
   // ブラウザ側が「楽天APIへ接続中...」のまま停止する。
   var template = HtmlService.createTemplateFromFile('RakutenBrowserBridge');
-  template.configJson = JSON.stringify({
+  template.configJson = encodeURIComponent(JSON.stringify({
     applicationId: KAZU_RAKUTEN_APP_ID_(),
     accessKey: KAZU_RAKUTEN_KEY_(),
     affiliateId: KAZU_RAKUTEN_AFFILIATE_ID_(),
     hits: 10,
     keyword: 'フライパン'
-  });
+  }));
   return template.evaluate()
     .setTitle('楽天商品検索')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
