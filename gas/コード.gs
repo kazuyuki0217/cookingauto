@@ -424,3 +424,60 @@ function PinterestOAuth診断ログ() {
   else Logger.log('判定: pins:write は保存されています。401は別原因を調査します。');
   return result;
 }
+
+/* ================= 料理写真コレクション登録 ================= */
+function 料理写真コレクション登録(base64, mimeType, originalName, dishName) {
+  base64 = String(base64 || '').replace(/^data:[^,]+,/, '').trim();
+  mimeType = String(mimeType || 'image/jpeg').trim();
+  originalName = String(originalName || '料理写真.jpg').trim();
+  dishName = String(dishName || '').trim();
+
+  if (!base64) throw new Error('料理写真がありません。');
+  if (!dishName) throw new Error('料理名を入力してください。');
+  if (!/^image\\/(jpeg|png|webp)$/i.test(mimeType)) throw new Error('JPEG・PNG・WebPのみ登録できます。');
+
+  var bytes = Utilities.base64Decode(base64);
+  if (!bytes || bytes.length < 1024) throw new Error('画像データが小さすぎます。');
+  if (bytes.length > 900000) throw new Error('画像が大きすぎます。スマホ側で自動圧縮された写真を使用してください。');
+
+  var folder = getOrCreatePointKazuDriveFolder_();
+  var driveFile = folder.createFile(Utilities.newBlob(bytes, mimeType, originalName));
+  driveFile.setDescription(dishName);
+
+  var props = PropertiesService.getScriptProperties();
+  var owner = props.getProperty('GITHUB_OWNER');
+  var repo = props.getProperty('GITHUB_REPO');
+  var branch = props.getProperty('GITHUB_BRANCH') || 'main';
+  var token = props.getProperty('GITHUB_TOKEN');
+  if (!owner || !repo || !token) throw new Error('GitHub設定が不足しています。');
+
+  var imageBase64 = Utilities.base64Encode(bytes);
+  var base = 'https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) + '/contents/';
+  var headers = {Authorization:'Bearer '+token,Accept:'application/vnd.github+json'};
+
+  function getSha(path) {
+    var r = UrlFetchApp.fetch(base + path + '?ref=' + encodeURIComponent(branch), {method:'get',headers:headers,muteHttpExceptions:true});
+    if (r.getResponseCode() === 200) return JSON.parse(r.getContentText()).sha || '';
+    if (r.getResponseCode() === 404) return '';
+    throw new Error('GitHub確認失敗 HTTP ' + r.getResponseCode());
+  }
+  function putFile(path, content, message) {
+    var payload={message:message,content:content,branch:branch};
+    var sha=getSha(path);
+    if(sha) payload.sha=sha;
+    var r=UrlFetchApp.fetch(base+path,{method:'put',contentType:'application/json',headers:headers,payload:JSON.stringify(payload),muteHttpExceptions:true});
+    var code=r.getResponseCode();
+    if(code!==200 && code!==201) throw new Error('GitHub登録失敗 HTTP '+code+'\\n'+r.getContentText());
+  }
+
+  var photoId='PHOTO_'+Utilities.getUuid().replace(/-/g,'').slice(0,16);
+  var now=new Date().toISOString();
+  var safeName=originalName.replace(/[^A-Za-z0-9._-]/g,'_') || '料理写真.jpg';
+  var metadata={photoId:photoId,photoFile:safeName,dishName:dishName,mimeType:mimeType,bytes:bytes.length,createdAt:now,source:'料理写真コレクション'};
+
+  putFile('incoming/latest_photo.b64',imageBase64,'料理写真コレクション: 写真を登録');
+  putFile('incoming/latest_photo.json',Utilities.base64Encode(Utilities.newBlob(JSON.stringify(metadata,null,2),'application/json').getBytes()),'料理写真コレクション: 料理名を登録');
+  putFile('incoming/latest_photo.trigger',Utilities.base64Encode(Utilities.newBlob('run='+now+'\\nsource=料理写真コレクション\\nphoto='+safeName+'\\nphotoId='+photoId+'\\ndishName='+dishName+'\\n','text/plain').getBytes()),'料理写真コレクション: 投稿トリガー');
+
+  return {success:true,photoId:photoId,photoFile:safeName,dishName:dishName,bytes:bytes.length,message:'写真＋料理名の登録が完了しました。自動処理を開始します。'};
+}
