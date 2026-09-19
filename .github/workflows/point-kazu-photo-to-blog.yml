@@ -3,8 +3,6 @@ name: Pointカズ｜料理写真→はてな記事投稿（第一段階）
 on:
   push:
     paths:
-      - 'incoming/latest_photo.jpg'
-      - 'incoming/latest_photo.b64'
       - 'incoming/latest_photo.trigger'
   workflow_dispatch:
 
@@ -42,6 +40,29 @@ jobs:
           if state.exists() and photo in {x.strip() for x in state.read_text(encoding="utf-8").splitlines() if x.strip()}:
               raise SystemExit(f"既に処理済みの写真です: {photo}")
           print(f"今回処理する写真: {photo}")
+          PY
+
+      - name: 写真＋料理名メタデータを確定
+        id: photo_meta
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=Path("incoming/latest_photo.json")
+          if not p.exists():
+              raise SystemExit("料理写真メタデータがありません。")
+          data=json.loads(p.read_text(encoding="utf-8"))
+          photo=str(data.get("photoFile","")).strip()
+          dish=str(data.get("dishName","")).strip()
+          if not photo or not dish:
+              raise SystemExit("写真ファイル名と料理名が揃っていません。")
+          trigger=Path("incoming/latest_photo.trigger").read_text(encoding="utf-8")
+          if photo not in trigger or dish not in trigger:
+              raise SystemExit("写真と料理名の紐付けがトリガーと一致しません。")
+          with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as f:
+              f.write("dish_name="+dish.replace("\n"," ").replace("\r"," ")+"\n")
+          print("今回の料理名:", dish)
+          print("今回の写真:", photo)
           PY
 
       - name: 料理写真を入力として確定
@@ -101,6 +122,7 @@ jobs:
           PINTEREST_AUTOMATION_SECRET: ${{ secrets.PINTEREST_AUTOMATION_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           COOKING_IMAGE_FILE: images/latest_photo.jpg
+          COLLECTION_DISH_NAME: ${{ steps.photo_meta.outputs.dish_name }}
         run: python cloud_article_client.py
 
       - name: 楽天アフィリエイトを心理設計で自然分散
