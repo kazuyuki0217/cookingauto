@@ -65,6 +65,6 @@ if count != 5:
 Path('pinterest_publish_result.json').write_text(
     json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8'
 )
-print('Pinterest実投稿成功: 5件')
+print('Pinterest 5件の予約登録成功: 07:00 / 11:30 / 15:00 / 18:30 / 21:30')
 for item in result.get('results', []):
     print(f"  Pin {item.get('index')}: {item.get('id', '')}")
