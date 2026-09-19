@@ -5,6 +5,7 @@ on:
     paths:
       - 'incoming/latest_photo.jpg'
       - 'incoming/latest_photo.b64'
+      - 'incoming/latest_photo.trigger'
   workflow_dispatch:
 
 permissions:
