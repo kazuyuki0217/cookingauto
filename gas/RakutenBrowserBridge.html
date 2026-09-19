@@ -1,59 +1,44 @@
 <!doctype html>
-<html lang="ja">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>楽天商品検索ブリッジ診断</title>
-<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:32px auto;padding:0 16px}pre{white-space:pre-wrap;word-break:break-word;background:#f5f5f5;padding:12px}</style>
-</head>
-<body>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>楽天商品検索</title>
+<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:32px auto;padding:0 16px}input,button{font-size:16px;padding:8px}pre{white-space:pre-wrap;word-break:break-word;background:#f5f5f5;padding:12px}</style>
+</head><body>
 <h1>楽天商品検索</h1>
-<pre id="result">診断① HTML読み込み成功</pre>
+<input id="keyword" value="フライパン"><button id="search">楽天商品を検索</button>
+<pre id="result">未実行</pre>
 <script>
-var resultEl=document.getElementById('result');
-var startedAt=Date.now();
-function show(s){resultEl.textContent=s;}
-try{
-  show('診断① HTML読み込み成功\n診断② configJson評価開始...');
-  var config=JSON.parse(decodeURIComponent('<?!= configJson ?>'));
-  show('診断① HTML読み込み成功\n診断② configJson評価成功\n診断③ searchRakuten開始...');
-  start();
-}catch(e){
-  show('診断失敗\n段階: configJson評価\n'+String(e));
-}
-function start(){
-  try{
-    if(!config||typeof config!=='object')throw new Error('configJsonがオブジェクトではありません');
-    show('診断③ searchRakuten開始\n診断④ 設定値確認...');
-    var app=String(config.applicationId||'').trim();
-    var key=String(config.accessKey||'').trim();
-    var keyword=String(config.keyword||'').trim();
-    if(!app||!key||!keyword)throw new Error('設定値不足 applicationId/accessKey/keyword');
-    show('診断④ 設定値確認OK\n診断⑤ JSONPコールバック作成...');
-    var cb='rakutenBridge_'+Date.now(),done=false;
-    window[cb]=function(data){
-      if(done)return; done=true;
-      if(!data){show('診断失敗\n診断⑥ API応答が空');return;}
-      if(data.error){show('診断失敗\n診断⑥ 楽天APIエラー\n'+JSON.stringify(data));return;}
-      var items=data.Items||data.items||[];
-      show(JSON.stringify({success:true,stage:'rakuten_jsonp',count:Array.isArray(items)?items.length:0,elapsedMs:Date.now()-startedAt}));
-    };
-    show('診断⑤ JSONPコールバック作成OK\n診断⑥ 外部楽天APIへ接続...');
-    var params=new URLSearchParams({
-      applicationId:app,accessKey:key,keyword:keyword,hits:String(config.hits||10),
-      page:'1',format:'json',formatVersion:'2',sort:'-reviewCount',
-      orFlag:'1',availability:'1',imageFlag:'1',callback:cb
-    });
-    if(String(config.affiliateId||'').trim())params.set('affiliateId',String(config.affiliateId).trim());
-    var script=document.createElement('script');
-    script.async=true;
-    script.onerror=function(){if(!done)show('診断失敗\n診断⑥ JSONPスクリプト読み込みエラー');};
-    script.onload=function(){setTimeout(function(){if(!done)show('診断⑥ JSONP読み込み完了・callback未実行');},1500);};
-    script.src='https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701?'+params.toString();
-    document.head.appendChild(script);
-    setTimeout(function(){if(!done)show('診断⑥ タイムアウト（20秒）');},20000);
-  }catch(e){show('診断失敗\n段階: searchRakuten\n'+String(e));}
-}
-</script>
-</body>
-</html>
+(function(){
+var out=document.getElementById('result'), btn=document.getElementById('search');
+function show(s){out.textContent=s;}
+btn.onclick=function(){
+ var keyword=(document.getElementById('keyword').value||'フライパン').trim();
+ if(!keyword){show('検索語を入力してください。');return;}
+ show('診断① GAS設定確認中...');
+ google.script.run.withSuccessHandler(function(cfg){
+   if(!cfg||!cfg.applicationId||!cfg.accessKey){show('診断失敗\n楽天API設定（Application ID / Access Key）が未登録です。');return;}
+   show('診断② 設定取得成功\n診断③ 楽天APIへ接続...');
+   var cb='rakutenBridge_'+Date.now(),done=false;
+   window[cb]=function(data){
+     if(done)return; done=true;
+     if(!data||data.error){show('診断失敗\n診断④ 楽天APIエラー\n'+JSON.stringify(data||{}));return;}
+     var items=data.Items||data.items||[];
+     show('診断④ 楽天API成功\n取得件数: '+(Array.isArray(items)?items.length:0));
+     google.script.run.withSuccessHandler(function(saved){
+       show('完了\n取得: '+saved.count+'件\n'+JSON.stringify(saved.items,null,2));
+     }).withFailureHandler(function(err){
+       show('診断失敗\n診断⑤ GAS保存\n'+(err&&err.message?err.message:err));
+     }).保存楽天ブラウザ検索結果(JSON.stringify(data));
+   };
+   var p=new URLSearchParams({applicationId:String(cfg.applicationId),accessKey:String(cfg.accessKey),keyword:keyword,hits:'10',page:'1',format:'json',formatVersion:'2',sort:'-reviewCount',orFlag:'1',availability:'1',imageFlag:'1',callback:cb});
+   if(cfg.affiliateId)p.set('affiliateId',String(cfg.affiliateId));
+   var script=document.createElement('script');script.id='rakuten-jsonp';script.async=true;
+   script.onerror=function(){if(!done){done=true;show('診断失敗\n診断④ JSONP通信エラー');}};
+   script.src='https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701?'+p.toString();
+   document.head.appendChild(script);
+   setTimeout(function(){if(!done){done=true;show('診断失敗\n診断④ タイムアウト（20秒）');}},20000);
+ }).withFailureHandler(function(err){
+   show('診断失敗\n診断① GAS設定取得\n'+(err&&err.message?err.message:err));
+ }).楽天ブラウザ検索設定取得();
+};
+})();
+</script></body></html>
